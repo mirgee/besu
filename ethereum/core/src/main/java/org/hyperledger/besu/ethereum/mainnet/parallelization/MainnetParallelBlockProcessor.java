@@ -32,6 +32,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpecBuilder;
 import org.hyperledger.besu.ethereum.privacy.storage.PrivateMetadataUpdater;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
@@ -101,14 +102,17 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
 
     TransactionProcessingResult transactionProcessingResult = null;
 
+    BonsaiWorldState ws = (BonsaiWorldState) worldState;
+
     if (preProcessingContext.isPresent()) {
+      ws.disableCacheMerkleTrieLoader();
       final ParallelizedPreProcessingContext parallelizedPreProcessingContext =
           (ParallelizedPreProcessingContext) preProcessingContext.get();
       transactionProcessingResult =
-          parallelizedPreProcessingContext
+      parallelizedPreProcessingContext
               .parallelizedConcurrentTransactionProcessor()
               .applyParallelizedTransactionResult(
-                  worldState,
+                  ws,
                   miningBeneficiary,
                   transaction,
                   location,
@@ -118,17 +122,18 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
     }
 
     if (transactionProcessingResult == null) {
-      return super.getTransactionProcessingResult(
-          preProcessingContext,
-          worldState,
-          blockUpdater,
-          privateMetadataUpdater,
-          blockHeader,
-          blobGasPrice,
-          miningBeneficiary,
-          transaction,
-          location,
-          blockHashLookup);
+    ws.enableCacheMerkleTrieLoader();
+    return super.getTransactionProcessingResult(
+        preProcessingContext,
+        ws,
+        blockUpdater,
+        privateMetadataUpdater,
+        blockHeader,
+        blobGasPrice,
+        miningBeneficiary,
+        transaction,
+        location,
+        blockHashLookup);
     } else {
       return transactionProcessingResult;
     }

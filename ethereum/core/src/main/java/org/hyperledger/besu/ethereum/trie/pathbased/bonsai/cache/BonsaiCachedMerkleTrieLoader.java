@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache;
 
+import static org.hyperledger.besu.ethereum.trie.CompactEncoding.bytesToPath;
 import static org.hyperledger.besu.metrics.BesuMetricCategory.BLOCKCHAIN;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -26,6 +27,8 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.StorageSubscriber;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.metrics.ObservableMetricsSystem;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
@@ -84,6 +87,38 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
     }
   }
 
+  public void cacheAccountNodesBatch(
+      final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
+      final List<Address> accounts) {
+    final long subscriberId = worldStateKeyValueStorage.subscribe(this);
+    try {
+      List<byte[]> allKeys = new ArrayList<>();
+      List<Integer> keyCounts = new ArrayList<>();
+      for (Address account : accounts) {
+        Bytes path = bytesToPath(account.addressHash());
+        int count = path.size() - 1;
+        keyCounts.add(count);
+        for (int i = 1; i < path.size(); i++) {
+          Bytes slice = path.slice(0, i);
+          allKeys.add(slice.toArrayUnsafe());
+        }
+      }
+      List<byte[]> outputs = worldStateKeyValueStorage.getMultipleKeys(allKeys);
+      int index = 0;
+      for (int j = 0; j < accounts.size(); j++) {
+        int count = keyCounts.get(j);
+        for (int i = 0; i < count; i++) {
+          byte[] keyBytes = allKeys.get(index);
+          byte[] output = outputs.get(index);
+          accountNodes.put(Hash.hash(Bytes.wrap(keyBytes)), Bytes.wrap(output));
+          index++;
+        }
+      }
+    } finally {
+      worldStateKeyValueStorage.unSubscribe(subscriberId);
+    }
+  }
+
   public void preLoadStorageSlot(
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
       final Address account,
@@ -124,6 +159,78 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
               });
     } finally {
       worldStateKeyValueStorage.unSubscribe(storageSubscriberId);
+    }
+  }
+
+  public static class StoragePreloadRequest {
+    public final Address account;
+    public final StorageSlotKey slotKey;
+
+    public StoragePreloadRequest(final Address account, final StorageSlotKey slotKey) {
+      this.account = account;
+      this.slotKey = slotKey;
+    }
+  }
+
+  public void cacheStorageNodesBatch(
+      final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
+      final List<StoragePreloadRequest> storageRequests) {
+    final long subscriberId = worldStateKeyValueStorage.subscribe(this);
+    try {
+      List<byte[]> allKeys = new ArrayList<>();
+      List<Integer> keyCounts = new ArrayList<>();
+      for (StoragePreloadRequest req : storageRequests) {
+        Hash accountHash = req.account.addressHash();
+        Bytes path = bytesToPath(req.slotKey.getSlotHash());
+        int count = path.size() - 1;
+        keyCounts.add(count);
+        for (int i = 1; i < path.size(); i++) {
+          Bytes slice = path.slice(0, i);
+          Bytes key = Bytes.concatenate(accountHash, slice);
+          allKeys.add(key.toArrayUnsafe());
+        }
+      }
+      List<byte[]> outputs = worldStateKeyValueStorage.getMultipleKeys(allKeys);
+      int index = 0;
+      for (int j = 0; j < storageRequests.size(); j++) {
+        int count = keyCounts.get(j);
+        for (int i = 0; i < count; i++) {
+          byte[] keyBytes = allKeys.get(index);
+          byte[] output = outputs.get(index);
+          storageNodes.put(Hash.hash(Bytes.wrap(keyBytes)), Bytes.wrap(output));
+          index++;
+        }
+      }
+    } finally {
+      worldStateKeyValueStorage.unSubscribe(subscriberId);
+    }
+  }
+
+  public static class PreloadTask {
+    private final List<Address> accountPreloads;
+    private final List<StoragePreloadRequest> storagePreloads;
+
+    public PreloadTask(final List<Address> accountPreloads, final List<StoragePreloadRequest> storagePreloads) {
+      this.accountPreloads = accountPreloads;
+      this.storagePreloads = storagePreloads;
+    }
+
+    public List<Address> getAccountPreloads() {
+      return accountPreloads;
+    }
+
+    public List<StoragePreloadRequest> getStoragePreloads() {
+      return storagePreloads;
+    }
+  }
+
+  public void processPreloadTask(
+      final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage, final PreloadTask task) {
+    if (!task.getAccountPreloads().isEmpty()) {
+      cacheAccountNodesBatch(worldStateKeyValueStorage, task.getAccountPreloads());
+    }
+    if (!task.getStoragePreloads().isEmpty()) {
+      cacheStorageNodesBatch(worldStateKeyValueStorage, task.getStoragePreloads());
     }
   }
 

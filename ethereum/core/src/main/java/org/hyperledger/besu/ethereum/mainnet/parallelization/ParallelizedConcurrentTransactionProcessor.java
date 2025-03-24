@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -24,6 +25,7 @@ import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.privacy.storage.PrivateMetadataUpdater;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
@@ -31,8 +33,16 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldView;
+import org.hyperledger.besu.metrics.BesuMetricCategory;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
+import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
+import org.hyperledger.besu.services.pipeline.Pipeline;
+import org.hyperledger.besu.services.pipeline.PipelineBuilder;
 
+import static org.hyperledger.besu.services.pipeline.PipelineBuilder.createPipeline;
+
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -59,6 +69,8 @@ public class ParallelizedConcurrentTransactionProcessor {
       parallelizedTransactionContextByLocation = new ConcurrentHashMap<>();
 
   private CompletableFuture<Void>[] completableFuturesForBackgroundTransactions;
+  
+  private Pipeline<BonsaiCachedMerkleTrieLoader.PreloadTask> pipeline;
 
   /**
    * Constructs a PreloadConcurrentTransactionProcessor with a specified transaction processor. This
@@ -105,27 +117,29 @@ public class ParallelizedConcurrentTransactionProcessor {
       final Wei blobGasPrice,
       final PrivateMetadataUpdater privateMetadataUpdater,
       final Executor executor) {
+    BonsaiWorldState ws =
+              (BonsaiWorldState)
+                  protocolContext
+                      .getWorldStateArchive()
+                      .getWorldState(
+                          WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(protocolContext.getBlockchain().getChainHeadHeader()))
+                      .orElse(null);
 
-    completableFuturesForBackgroundTransactions = new CompletableFuture[transactions.size()];
-    for (int i = 0; i < transactions.size(); i++) {
-      final Transaction transaction = transactions.get(i);
-      final int transactionLocation = i;
-      /*
-       * All transactions are executed in the background by copying the world state of the block on which the transactions need to be executed, ensuring that each one has its own accumulator.
-       */
-      CompletableFuture.runAsync(
-          () ->
-              runTransaction(
-                  protocolContext,
-                  blockHeader,
-                  transactionLocation,
-                  transaction,
-                  miningBeneficiary,
-                  blockHashLookup,
-                  blobGasPrice,
-                  privateMetadataUpdater),
-          executor);
-    }
+    final LabelledMetric<Counter> outputCounter =
+        (new NoOpMetricsSystem()).createLabelledCounter(
+            BesuMetricCategory.SYNCHRONIZER,
+            "preloaded_total",
+            "Number of preloaded tasks processed");
+    pipeline =
+      PipelineBuilder.<BonsaiCachedMerkleTrieLoader.PreloadTask>createPipeline(
+          "preloadTaskInput", 4096, outputCounter, true, "preload_pipeline")
+      .thenProcessInParallel(
+          "batchPreloadNodes",
+          task -> {
+            ws.getCacheMerkleTrieLoader().processPreloadTask(ws.getWorldStateStorage(), task);
+            return task;
+          },
+          1024).andFinishWith("preloadComplete", task -> {});
   }
 
   @VisibleForTesting
@@ -259,6 +273,7 @@ public class ParallelizedConcurrentTransactionProcessor {
           transactionCollisionDetector.hasCollision(
               transaction, miningBeneficiary, parallelizedTransactionContext, blockAccumulator);
       if (transactionProcessingResult.isSuccessful() && !hasCollision) {
+        pipeline.getInputPipe().put(createPreloadTask(transactionAccumulator));
         Wei reward = parallelizedTransactionContext.miningBeneficiaryReward();
         if (!reward.isZero() || !transactionProcessor.getClearEmptyAccounts()) {
           blockAccumulator.getOrCreate(miningBeneficiary).incrementBalance(reward);
@@ -273,7 +288,9 @@ public class ParallelizedConcurrentTransactionProcessor {
         }
         return Optional.of(transactionProcessingResult);
       } else {
-        blockAccumulator.importPriorStateFromSource(transactionAccumulator);
+        if (transactionProcessingResult.isSuccessful()) {
+          blockAccumulator.importPriorStateFromSource(transactionAccumulator);
+        }
         if (conflictingButCachedTransactionCounter.isPresent())
           conflictingButCachedTransactionCounter.get().inc();
         // If there is a conflict, we return an empty result to signal the block processor to
@@ -289,5 +306,23 @@ public class ParallelizedConcurrentTransactionProcessor {
       }
     }
     return Optional.empty();
+  }
+
+  private BonsaiCachedMerkleTrieLoader.PreloadTask createPreloadTask(
+      final PathBasedWorldStateUpdateAccumulator<?> accumulator) {
+    List<Address> accountPreloads = new ArrayList<>();
+    List<BonsaiCachedMerkleTrieLoader.StoragePreloadRequest> storagePreloads = new ArrayList<>();
+    
+    for (Address addr : accumulator.getAccountsToUpdate().keySet()) {
+      accountPreloads.add(addr);
+    }
+    
+    accumulator.getStorageToUpdate().forEach((address, storageMap) -> {
+      for (StorageSlotKey slotKey : storageMap.keySet()) {
+        storagePreloads.add(new BonsaiCachedMerkleTrieLoader.StoragePreloadRequest(address, slotKey));
+      }
+    });
+    
+    return new BonsaiCachedMerkleTrieLoader.PreloadTask(accountPreloads, storagePreloads);
   }
 }
