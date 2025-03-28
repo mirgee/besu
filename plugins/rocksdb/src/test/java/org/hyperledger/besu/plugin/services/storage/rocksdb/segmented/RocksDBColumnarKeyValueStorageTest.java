@@ -38,14 +38,19 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.services.kvstore.SegmentedKeyValueStorageAdapter;
 
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 
@@ -54,6 +59,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
+import org.rocksdb.HistogramType;
+import org.rocksdb.TickerType;
+
+import com.google.common.primitives.Ints;
 
 public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValueStorageTest {
 
@@ -431,37 +440,49 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
   }
 
   @Test
-  public void multigetPerformanceTest() throws Exception {
+  public void perfTestMultiget() throws Exception {
     final int totalKeys = 1_000_000;
-    final int[] batchSizes = new int[]{10, 50, 100, 500, 1000, totalKeys};
+    final int[] batchSizes = new int[]{1000, 10_000, 100_000, totalKeys};
     final int iterations = 5;
 
     for (int batchSize : batchSizes) {
       long totalTime = 0;
       for (int iter = 0; iter < iterations; iter++) {
         try (final SegmentedKeyValueStorage segmentedStore = createSegmentedStore()) {
-          final List<byte[]> keys = new ArrayList<>(totalKeys);
+          final List<Map.Entry<byte[], byte[]>> entries = new ArrayList<>(totalKeys);
           final SegmentedKeyValueStorageTransaction tx = segmentedStore.startTransaction();
           for (int i = 0; i < totalKeys; i++) {
-            final byte[] key = new byte[] {
-                (byte) ((i >> 24) & 0xFF),
-                (byte) ((i >> 16) & 0xFF),
-                (byte) ((i >> 8) & 0xFF),
-                (byte) (i & 0xFF)
-            };
-            final byte[] value = key;
-            keys.add(key);
+            byte[] key = new byte[16];
+            ThreadLocalRandom.current().nextBytes(key);
+
+            // int region = i / 100;
+            // byte[] key = new byte[16];
+            // System.arraycopy(Ints.toByteArray(region), 0, key, 0, 4);
+            // ThreadLocalRandom random = ThreadLocalRandom.current();
+            // for (int j = 4; j < 16; j++) {
+            //   key[j] = (byte) random.nextInt();
+            // }
+
+            byte[] value = new byte[1024];
+            ThreadLocalRandom.current().nextBytes(value);
+            entries.add(new AbstractMap.SimpleEntry<>(key, value));
             tx.put(TestSegment.FOO, key, value);
           }
           tx.commit();
 
-          Collections.shuffle(keys);
+          Collections.shuffle(entries);
+          // entries.sort(Comparator.comparing(e -> ByteBuffer.wrap(e.getKey()).getInt()));
 
           final long startTime = System.nanoTime();
 
-          for (int index = 0; index < totalKeys; index += batchSize) {
-            final int endIndex = Math.min(index + batchSize, totalKeys);
-            final List<byte[]> batchKeys = keys.subList(index, endIndex);
+          for (int index = 0; index < entries.size(); index += batchSize) {
+            final int endIndex = Math.min(index + batchSize, entries.size());
+            final List<byte[]> batchKeys = new ArrayList<>(endIndex - index);
+            final List<byte[]> expectedValues = new ArrayList<>(endIndex - index);
+            for (int j = index; j < endIndex; j++) {
+              batchKeys.add(entries.get(j).getKey());
+              expectedValues.add(entries.get(j).getValue());
+            }
 
             final List<SegmentIdentifier> segments = new ArrayList<>(batchKeys.size());
             for (int j = 0; j < batchKeys.size(); j++) {
@@ -470,7 +491,7 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
 
             final List<byte[]> results = segmentedStore.multiget(segments, batchKeys);
             for (int j = 0; j < results.size(); j++) {
-              assertThat(results.get(j)).containsExactly(batchKeys.get(j));
+              assertThat(results.get(j)).containsExactly(expectedValues.get(j));
             }
           }
 
@@ -479,50 +500,57 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
         }
         Thread.sleep(50);
       }
-      System.out.println("Batch size: " + batchSize + " - Average time over " + iterations 
+      System.out.println("Batch size: " + batchSize + " - Average time over " + iterations
           + " iterations: " + (totalTime / iterations) + " ms");
+
     }
   }
 
-
   @Test
-  public void nonBatchedReadsPerformanceTest() throws Exception {
+  public void perfTestNonBatched() throws Exception {
     final int totalKeys = 1_000_000;
     final int iterations = 5;
     long totalTime = 0;
 
     for (int iter = 0; iter < iterations; iter++) {
       try (final SegmentedKeyValueStorage segmentedStore = createSegmentedStore()) {
-        final List<byte[]> keys = new ArrayList<>(totalKeys);
+        final List<Map.Entry<byte[], byte[]>> entries = new ArrayList<>(totalKeys);
         final SegmentedKeyValueStorageTransaction tx = segmentedStore.startTransaction();
         for (int i = 0; i < totalKeys; i++) {
-          final byte[] key = new byte[] {
-              (byte) ((i >> 24) & 0xFF),
-              (byte) ((i >> 16) & 0xFF),
-              (byte) ((i >> 8) & 0xFF),
-              (byte) (i & 0xFF)
-          };
-          final byte[] value = key;
-          keys.add(key);
+          byte[] key = new byte[16];
+          ThreadLocalRandom.current().nextBytes(key);
+
+          // int region = i / 100;
+          // byte[] key = new byte[16];
+          // System.arraycopy(Ints.toByteArray(region), 0, key, 0, 4);
+          // ThreadLocalRandom random = ThreadLocalRandom.current();
+          // for (int j = 4; j < 16; j++) {
+          //   key[j] = (byte) random.nextInt();
+          // }
+
+          byte[] value = new byte[1024];
+          ThreadLocalRandom.current().nextBytes(value);
+          entries.add(new AbstractMap.SimpleEntry<>(key, value));
           tx.put(TestSegment.FOO, key, value);
         }
         tx.commit();
 
-        Collections.shuffle(keys);
+        Collections.shuffle(entries);
+        // entries.sort(Comparator.comparing(e -> ByteBuffer.wrap(e.getKey()).getInt()));
 
         final long startTime = System.nanoTime();
 
-        for (byte[] key : keys) {
-          Optional<byte[]> result = segmentedStore.get(TestSegment.FOO, key);
+        for (Map.Entry<byte[], byte[]> entry : entries) {
+          Optional<byte[]> result = segmentedStore.get(TestSegment.FOO, entry.getKey());
           assertThat(result).isPresent();
-          assertThat(result.get()).containsExactly(key);
+          assertThat(result.get()).containsExactly(entry.getValue());
         }
         final long elapsedMillis = (System.nanoTime() - startTime) / 1_000_000;
         totalTime += elapsedMillis;
       }
       Thread.sleep(50);
     }
-    System.out.println("Non-batched reads - Average time over " + iterations 
+    System.out.println("Non-batched reads - Average time over " + iterations
         + " iterations: " + (totalTime / iterations) + " ms");
   }
 }

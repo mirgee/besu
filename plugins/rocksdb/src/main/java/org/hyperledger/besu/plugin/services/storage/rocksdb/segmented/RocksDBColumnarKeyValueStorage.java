@@ -100,7 +100,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
 
   private final WriteOptions tryDeleteOptions =
       new WriteOptions().setNoSlowdown(true).setIgnoreMissingColumnFamilies(true);
-  private final ReadOptions readOptions = new ReadOptions().setVerifyChecksums(false);
+  private final ReadOptions readOptions = new ReadOptions().setVerifyChecksums(false).setAsyncIo(true);
   private final MetricsSystem metricsSystem;
   private final RocksDBMetricsFactory rocksDBMetricsFactory;
   private final RocksDBConfiguration configuration;
@@ -258,7 +258,8 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
         .setBlockCache(cache)
         .setFilterPolicy(new BloomFilter(10, false))
         .setPartitionFilters(true)
-        .setCacheIndexAndFilterBlocks(false)
+        .setCacheIndexAndFilterBlocks(true)
+        .setPinL0FilterAndIndexBlocksInCache(true)
         .setBlockSize(ROCKSDB_BLOCK_SIZE);
   }
 
@@ -394,7 +395,6 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
       columnFamilyHandleList.add(safeColumnHandle(segments.get(i)));
     }
     try (final OperationTimer.TimingContext ignored = metrics.getReadLatency().startTimer()) {
-      LOG.info("Read options: {}", readOptions);
       List<byte[]> result = getDB().multiGetAsList(readOptions, columnFamilyHandleList, keys);
       return result != null ? result : Collections.emptyList();
     } catch (final RocksDBException e) {
