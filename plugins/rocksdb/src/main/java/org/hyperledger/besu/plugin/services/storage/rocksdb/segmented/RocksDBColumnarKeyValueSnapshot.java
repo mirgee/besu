@@ -104,6 +104,17 @@ public class RocksDBColumnarKeyValueSnapshot
   }
 
   @Override
+  public Optional<Bytes> getNearestKeyBefore(
+      final SegmentIdentifier segmentIdentifier, final Bytes key) throws StorageException {
+    try (final RocksIterator rocksIterator = snapTx.getIterator(segmentIdentifier)) {
+      rocksIterator.seekForPrev(key.toArrayUnsafe());
+      return Optional.of(rocksIterator)
+          .filter(AbstractRocksIterator::isValid)
+          .map(it -> Bytes.of(it.key()));
+    }
+  }
+
+  @Override
   public Optional<NearestKeyValue> getNearestAfter(
       final SegmentIdentifier segmentIdentifier, final Bytes key) throws StorageException {
     try (final RocksIterator rocksIterator = snapTx.getIterator(segmentIdentifier)) {

@@ -56,6 +56,9 @@ public interface SegmentedKeyValueStorage extends Closeable {
   Optional<NearestKeyValue> getNearestBefore(final SegmentIdentifier segmentIdentifier, Bytes key)
       throws StorageException;
 
+  Optional<Bytes> getNearestKeyBefore(final SegmentIdentifier segmentIdentifier, Bytes key)
+      throws StorageException;
+
   /**
    * Finds the key and corresponding value that is "nearest after" the specified key. "Nearest
    * after" is defined as the closest key that is either exactly matching the supplied key or

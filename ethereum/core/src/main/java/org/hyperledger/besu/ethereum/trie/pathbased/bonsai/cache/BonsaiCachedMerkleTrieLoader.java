@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache;
 
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 import static org.hyperledger.besu.ethereum.trie.CompactEncoding.bytesToPath;
 import static org.hyperledger.besu.metrics.BesuMetricCategory.BLOCKCHAIN;
 
@@ -106,27 +107,31 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
     final long storageSubscriberId = worldStateKeyValueStorage.subscribe(this);
     try {
       Bytes path = bytesToPath(account.addressHash());
-      int size = path.size();
-      List<byte[]> inputs = new ArrayList<>(size);
-      for (int i = 0; i < path.size(); i++) {
-        Bytes slice = path.slice(0, i);
-        inputs.add(slice.toArrayUnsafe());
-      }
+      worldStateKeyValueStorage
+          .getNearestKeyBefore(TRIE_BRANCH_STORAGE, path)
+          .ifPresent(
+              nk -> {
+                List<byte[]> inputs = new ArrayList<>(nk.size() + 1);
+                for (int i = 0; i <= nk.size(); i++) {
+                  Bytes slice = nk.slice(0, i);
+                  inputs.add(slice.toArrayUnsafe());
+                }
 
-      List<byte[]> outputs = worldStateKeyValueStorage.getMultipleKeys(inputs);
+                List<byte[]> outputs = worldStateKeyValueStorage.getMultipleKeys(inputs);
 
-      if (outputs.size() != inputs.size()) {
-        throw new IllegalStateException("Inputs and outputs must have equal length");
-      }
+                if (outputs.size() != inputs.size()) {
+                  throw new IllegalStateException("Inputs and outputs must have equal length");
+                }
 
-      for (int i = 0; i < outputs.size(); i++) {
-        byte[] rawNodeBytes = outputs.get(i);
-        if (rawNodeBytes != null) {
-          Bytes node = Bytes.wrap(rawNodeBytes);
-          Bytes32 nodeHash = Hash.hash(node);
-          accountNodes.put(nodeHash, node);
-        }
-      }
+                for (int i = 0; i < outputs.size(); i++) {
+                  byte[] rawNodeBytes = outputs.get(i);
+                  if (rawNodeBytes != null) {
+                    Bytes node = Bytes.wrap(rawNodeBytes);
+                    Bytes32 nodeHash = Hash.hash(node);
+                    accountNodes.put(nodeHash, node);
+                  }
+                }
+              });
     } catch (Exception ex) {
       LOG.error("Error caching account nodes", ex);
     } finally {
@@ -152,28 +157,36 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
     final Hash accountHash = account.addressHash();
     final long storageSubscriberId = worldStateKeyValueStorage.subscribe(this);
     try {
-      Bytes path = bytesToPath(slotKey.getSlotHash());
-      int size = path.size();
-      List<byte[]> inputs = new ArrayList<>(size);
-      for (int i = 0; i < path.size(); i++) {
-        Bytes slice = path.slice(0, i);
-        inputs.add(Bytes.concatenate(accountHash, slice).toArrayUnsafe());
-      }
+      Bytes path = Bytes.concatenate(accountHash, bytesToPath(slotKey.getSlotHash()));
+      worldStateKeyValueStorage
+          .getNearestKeyBefore(TRIE_BRANCH_STORAGE, path)
+          .ifPresent(
+              fullKey -> {
+                if (fullKey.size() < accountHash.size()) {
+                  return;
+                }
+                Bytes nk = fullKey.slice(accountHash.size());
+                List<byte[]> inputs = new ArrayList<>(nk.size() + 1);
+                for (int i = 0; i <= nk.size(); i++) {
+                  Bytes slice = nk.slice(0, i);
+                  inputs.add(Bytes.concatenate(accountHash, slice).toArrayUnsafe());
+                }
 
-      List<byte[]> outputs = worldStateKeyValueStorage.getMultipleKeys(inputs);
+                List<byte[]> outputs = worldStateKeyValueStorage.getMultipleKeys(inputs);
 
-      if (outputs.size() != inputs.size()) {
-        throw new IllegalStateException("Inputs and outputs must have equal length");
-      }
+                if (outputs.size() != inputs.size()) {
+                  throw new IllegalStateException("Inputs and outputs must have equal length");
+                }
 
-      for (int i = 0; i < inputs.size(); i++) {
-        byte[] rawNodeBytes = outputs.get(i);
-        if (rawNodeBytes != null) {
-          Bytes node = Bytes.wrap(rawNodeBytes);
-          Bytes32 nodeHash = Hash.hash(node);
-          storageNodes.put(nodeHash, node);
-        }
-      }
+                for (int i = 0; i < inputs.size(); i++) {
+                  byte[] rawNodeBytes = outputs.get(i);
+                  if (rawNodeBytes != null) {
+                    Bytes node = Bytes.wrap(rawNodeBytes);
+                    Bytes32 nodeHash = Hash.hash(node);
+                    storageNodes.put(nodeHash, node);
+                  }
+                }
+              });
     } catch (Exception ex) {
       LOG.error("Error caching storage nodes", ex);
     } finally {

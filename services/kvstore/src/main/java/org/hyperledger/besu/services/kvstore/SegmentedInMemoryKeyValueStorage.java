@@ -191,6 +191,19 @@ public class SegmentedInMemoryKeyValueStorage
   }
 
   @Override
+  public Optional<Bytes> getNearestKeyBefore(
+      final SegmentIdentifier segmentIdentifier, final Bytes key) throws StorageException {
+    return getNearest(
+            segmentIdentifier,
+            e ->
+                compareKeyLeftToRight(e.getKey(), key) <= 0
+                    && e.getKey().commonPrefixLength(key) >= e.getKey().size(),
+            e -> compareKeyLeftToRight(e.getKey(), key) < 0,
+            false)
+        .map(NearestKeyValue::key);
+  }
+
+  @Override
   public Optional<NearestKeyValue> getNearestAfter(
       final SegmentIdentifier segmentIdentifier, final Bytes key) throws StorageException {
     return getNearest(

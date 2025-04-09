@@ -100,7 +100,8 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
 
   private final WriteOptions tryDeleteOptions =
       new WriteOptions().setNoSlowdown(true).setIgnoreMissingColumnFamilies(true);
-  private final ReadOptions readOptions = new ReadOptions().setVerifyChecksums(false).setAsyncIo(true);
+  private final ReadOptions readOptions =
+      new ReadOptions().setVerifyChecksums(false).setAsyncIo(true);
   private final MetricsSystem metricsSystem;
   private final RocksDBMetricsFactory rocksDBMetricsFactory;
   private final RocksDBConfiguration configuration;
@@ -411,6 +412,18 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
       return Optional.of(rocksIterator)
           .filter(AbstractRocksIterator::isValid)
           .map(it -> new NearestKeyValue(Bytes.of(it.key()), Optional.of(it.value())));
+    }
+  }
+
+  @Override
+  public Optional<Bytes> getNearestKeyBefore(
+      final SegmentIdentifier segmentIdentifier, final Bytes key) throws StorageException {
+    try (final RocksIterator rocksIterator =
+        getDB().newIterator(safeColumnHandle(segmentIdentifier))) {
+      rocksIterator.seekForPrev(key.toArrayUnsafe());
+      return Optional.of(rocksIterator)
+          .filter(AbstractRocksIterator::isValid)
+          .map(it -> Bytes.of(it.key()));
     }
   }
 

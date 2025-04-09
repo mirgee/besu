@@ -138,6 +138,11 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
     return composedWorldStateStorage.multiget(listSegments, keys);
   }
 
+  public Optional<Bytes> getNearestKeyBefore(
+      final SegmentIdentifier segmentIdentifier, final Bytes key) {
+    return composedWorldStateStorage.getNearestKeyBefore(segmentIdentifier, key);
+  }
+
   public Optional<Bytes> getStorageValueByStorageSlotKey(
       final Hash accountHash, final StorageSlotKey storageSlotKey) {
     return getStorageValueByStorageSlotKey(
