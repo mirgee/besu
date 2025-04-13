@@ -439,7 +439,9 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
   @Test
   public void perfTestMultiget() throws Exception {
     final int totalKeys = 1_000_000;
-    final int[] batchSizes = new int[] {10_000, 100_000, totalKeys};
+    final int shardSize = 1000;
+    // final int[] batchSizes = new int[] {10_000, 100_000, totalKeys};
+    final int[] batchSizes = new int[] {1000, 10_000, 100_000};
     final int iterations = 5;
 
     for (int batchSize : batchSizes) {
@@ -448,27 +450,37 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
         TransactionDBRocksDBColumnarKeyValueStorage segmentedStore =
             (TransactionDBRocksDBColumnarKeyValueStorage) createSegmentedStore();
         final List<Map.Entry<byte[], byte[]>> entries = new ArrayList<>(totalKeys);
-        final SegmentedKeyValueStorageTransaction tx = segmentedStore.startTransaction();
-        for (int i = 0; i < totalKeys; i++) {
-          byte[] key = new byte[16];
-          ThreadLocalRandom.current().nextBytes(key);
-
-          byte[] value = new byte[1024];
-          ThreadLocalRandom.current().nextBytes(value);
-          entries.add(new AbstractMap.SimpleEntry<>(key, value));
-          tx.put(TestSegment.FOO, key, value);
-        }
-
-        tx.commit();
+        final var db = segmentedStore.getDB();
 
         try (FlushOptions flushOptions = new FlushOptions()) {
           flushOptions.setWaitForFlush(true);
           flushOptions.setAllowWriteStall(false);
-          for (RocksDbSegmentIdentifier handle :
-              segmentedStore.columnHandlesBySegmentIdentifier.values()) {
-            segmentedStore.getDB().flush(flushOptions, handle.get());
+
+          for (int shard = 0; shard < totalKeys / shardSize; shard++) {
+            final SegmentedKeyValueStorageTransaction tx = segmentedStore.startTransaction();
+            final String shardPrefix = String.format("shard-%04d-", shard);
+
+            for (int i = 0; i < shardSize; i++) {
+              String keyStr = shardPrefix + i;
+              byte[] key = keyStr.getBytes(StandardCharsets.UTF_8);
+              byte[] value = new byte[1024];
+              ThreadLocalRandom.current().nextBytes(value);
+              entries.add(new AbstractMap.SimpleEntry<>(key, value));
+              tx.put(TestSegment.FOO, key, value);
+            }
+
+            tx.commit();
+            db.flush(flushOptions, segmentedStore.safeColumnHandle(TestSegment.FOO));
           }
+
+          db.compactRange(segmentedStore.safeColumnHandle(TestSegment.FOO));
         }
+
+        // System.out.println("--- SSTable Layout ---");
+        // for (int level = 0; level <= 6; level++) {
+        //     String files = db.getProperty(segmentedStore.safeColumnHandle(TestSegment.FOO), "rocksdb.num-files-at-level" + level);
+        //     System.out.println("Level " + level + ": " + files + " files");
+        // }
 
         Collections.shuffle(entries);
 
@@ -499,28 +511,19 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
 
         var coroutineCount =
             segmentedStore.getStats().getTickerCount(TickerType.MULTIGET_COROUTINE_COUNT);
-        var memtableHit = segmentedStore.getStats().getTickerCount(TickerType.MEMTABLE_HIT);
-        var flushWriteBytes =
-            segmentedStore.getStats().getTickerCount(TickerType.FLUSH_WRITE_BYTES);
         var dbMultigetMedian =
             segmentedStore.getStats().getHistogramData(HistogramType.DB_MULTIGET).getMedian();
         var dbMultigetIoBatchSize =
-            segmentedStore
-                .getStats()
-                .getHistogramData(HistogramType.MULTIGET_IO_BATCH_SIZE)
-                .getMedian();
+            segmentedStore.getStats().getHistogramData(HistogramType.MULTIGET_IO_BATCH_SIZE).getMedian();
         var asyncReadBytes =
             segmentedStore.getStats().getHistogramData(HistogramType.ASYNC_READ_BYTES).getMedian();
 
         System.out.println("Coroutine count: " + coroutineCount);
-        System.out.println("Multiget count: " + dbMultigetMedian);
-        System.out.println("Multiget batch size: " + dbMultigetIoBatchSize);
-        System.out.println("Async read bytes: " + asyncReadBytes);
-        System.out.println("Flush write bytes: " + flushWriteBytes);
-        System.out.println("Memtable hit: " + memtableHit);
-
-        Thread.sleep(50);
+        System.out.println("DB Multiget latency (median): " + dbMultigetMedian + " ns");
+        System.out.println("Multiget I/O batch size (median): " + dbMultigetIoBatchSize);
+        System.out.println("Async read bytes (median): " + asyncReadBytes);
       }
+
       System.out.println(
           "Batch size: "
               + batchSize
@@ -535,53 +538,60 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
   @Test
   public void perfTestNonBatched() throws Exception {
     final int totalKeys = 1_000_000;
+    final int shardSize = 1000;
     final int iterations = 5;
+
     long totalTime = 0;
-
     for (int iter = 0; iter < iterations; iter++) {
-      try (final TransactionDBRocksDBColumnarKeyValueStorage segmentedStore =
-          (TransactionDBRocksDBColumnarKeyValueStorage) createSegmentedStore()) {
-        final List<Map.Entry<byte[], byte[]>> entries = new ArrayList<>(totalKeys);
-        final SegmentedKeyValueStorageTransaction tx = segmentedStore.startTransaction();
-        for (int i = 0; i < totalKeys; i++) {
-          byte[] key = new byte[16];
-          ThreadLocalRandom.current().nextBytes(key);
+      TransactionDBRocksDBColumnarKeyValueStorage segmentedStore =
+          (TransactionDBRocksDBColumnarKeyValueStorage) createSegmentedStore();
+      final List<Map.Entry<byte[], byte[]>> entries = new ArrayList<>(totalKeys);
+      final var db = segmentedStore.getDB();
 
-          byte[] value = new byte[1024];
-          ThreadLocalRandom.current().nextBytes(value);
-          entries.add(new AbstractMap.SimpleEntry<>(key, value));
-          tx.put(TestSegment.FOO, key, value);
-        }
-        tx.commit();
+      try (FlushOptions flushOptions = new FlushOptions()) {
+        flushOptions.setWaitForFlush(true);
+        flushOptions.setAllowWriteStall(false);
 
-        try (FlushOptions flushOptions = new FlushOptions()) {
-          flushOptions.setWaitForFlush(true);
-          flushOptions.setAllowWriteStall(false);
-          for (RocksDbSegmentIdentifier handle :
-              segmentedStore.columnHandlesBySegmentIdentifier.values()) {
-            segmentedStore.getDB().flush(flushOptions, handle.get());
+        for (int shard = 0; shard < totalKeys / shardSize; shard++) {
+          final SegmentedKeyValueStorageTransaction tx = segmentedStore.startTransaction();
+          final String shardPrefix = String.format("shard-%04d-", shard);
+
+          for (int i = 0; i < shardSize; i++) {
+            String keyStr = shardPrefix + i;
+            byte[] key = keyStr.getBytes(StandardCharsets.UTF_8);
+            byte[] value = new byte[1024];
+            ThreadLocalRandom.current().nextBytes(value);
+            entries.add(new AbstractMap.SimpleEntry<>(key, value));
+            tx.put(TestSegment.FOO, key, value);
           }
+
+          tx.commit();
+          db.flush(flushOptions, segmentedStore.safeColumnHandle(TestSegment.FOO));
         }
 
-        Collections.shuffle(entries);
-
-        final long startTime = System.nanoTime();
-
-        for (Map.Entry<byte[], byte[]> entry : entries) {
-          Optional<byte[]> result = segmentedStore.get(TestSegment.FOO, entry.getKey());
-          assertThat(result).isPresent();
-          assertThat(result.get()).containsExactly(entry.getValue());
-        }
-        final long elapsedMillis = (System.nanoTime() - startTime) / totalKeys;
-        totalTime += elapsedMillis;
+        db.compactRange(segmentedStore.safeColumnHandle(TestSegment.FOO));
       }
-      Thread.sleep(50);
+
+      // System.out.println("--- SSTable Layout ---");
+      // for (int level = 0; level <= 6; level++) {
+      //     String files = db.getProperty(segmentedStore.safeColumnHandle(TestSegment.FOO), "rocksdb.num-files-at-level" + level);
+      //     System.out.println("Level " + level + ": " + files + " files");
+      // }
+
+      Collections.shuffle(entries);
+
+      final long startTime = System.nanoTime();
+
+      for (Map.Entry<byte[], byte[]> entry : entries) {
+        Optional<byte[]> result = segmentedStore.get(TestSegment.FOO, entry.getKey());
+        assertThat(result).hasValueSatisfying(val -> assertThat(val).containsExactly(entry.getValue()));
+      }
+
+      final long elapsedMillis = (System.nanoTime() - startTime) / totalKeys;
+      totalTime += elapsedMillis;
     }
+
     System.out.println(
-        "Non-batched reads - Average time over "
-            + iterations
-            + " iterations: "
-            + (totalTime / iterations)
-            + " ms");
+        "Non-batched reads - Average time over " + iterations + " iterations: " + (totalTime / iterations) + " ms");
   }
 }

@@ -61,6 +61,7 @@ public class OptimisticRocksDBColumnarKeyValueStorage extends RocksDBColumnarKey
               options, configuration.getDatabaseDir().toString(), columnDescriptors, columnHandles);
       initMetrics();
       initColumnHandles();
+      logRocksDBMetrics();
 
     } catch (final RocksDBException e) {
       throw parseRocksDBException(e, segments, ignorableSegments);

@@ -24,6 +24,8 @@ public class RocksDBMetrics {
   private final OperationTimer removeLatency;
   private final OperationTimer writeLatency;
   private final OperationTimer commitLatency;
+  private final OperationTimer multiReadLatency;
+  private final OperationTimer nearestKeyLatency;
   private final Counter rollbackCount;
 
   /**
@@ -40,12 +42,16 @@ public class RocksDBMetrics {
       final OperationTimer removeLatency,
       final OperationTimer writeLatency,
       final OperationTimer commitLatency,
+      final OperationTimer multiReadLatency,
+      final OperationTimer nearestKeyLatency,
       final Counter rollbackCount) {
     this.readLatency = readLatency;
     this.removeLatency = removeLatency;
     this.writeLatency = writeLatency;
     this.commitLatency = commitLatency;
     this.rollbackCount = rollbackCount;
+    this.multiReadLatency = multiReadLatency;
+    this.nearestKeyLatency = nearestKeyLatency;
   }
 
   /**
@@ -82,6 +88,14 @@ public class RocksDBMetrics {
    */
   public OperationTimer getCommitLatency() {
     return commitLatency;
+  }
+
+  public OperationTimer getMultiReadLatency() {
+    return multiReadLatency;
+  }
+
+  public OperationTimer getNearestKeyLatency() {
+    return nearestKeyLatency;
   }
 
   /**

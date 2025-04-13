@@ -52,6 +52,7 @@ public class RocksDBStats {
     TickerType.BLOCK_CACHE_BYTES_READ,
     TickerType.BLOCK_CACHE_BYTES_WRITE,
     TickerType.BLOOM_FILTER_USEFUL,
+    TickerType.BLOOM_FILTER_FULL_POSITIVE,
     TickerType.PERSISTENT_CACHE_HIT,
     TickerType.PERSISTENT_CACHE_MISS,
     TickerType.SIM_BLOCK_CACHE_HIT,

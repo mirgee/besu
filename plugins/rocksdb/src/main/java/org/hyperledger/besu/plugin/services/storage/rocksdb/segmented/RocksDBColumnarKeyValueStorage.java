@@ -257,7 +257,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
     return new BlockBasedTableConfig()
         .setFormatVersion(ROCKSDB_FORMAT_VERSION)
         .setBlockCache(cache)
-        .setFilterPolicy(new BloomFilter(10, false))
+        .setFilterPolicy(new BloomFilter(24, false))
         .setPartitionFilters(true)
         .setCacheIndexAndFilterBlocks(false)
         .setBlockSize(ROCKSDB_BLOCK_SIZE);
@@ -332,6 +332,21 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
     metrics = rocksDBMetricsFactory.create(metricsSystem, configuration, getDB(), stats);
   }
 
+  void logRocksDBMetrics() {
+    LOG.info("--- SSTable Layout ---");
+      columnHandles.stream().forEach(ch -> {
+        try {
+          LOG.info("Column handle: " + ch.getID());
+          for (int level = 0; level <= 6; level++) {
+              String files = getDB().getProperty(ch, "rocksdb.num-files-at-level" + level);
+              LOG.info("Level " + level + ": " + files + " files");
+          }
+        } catch (RocksDBException e)  {
+          throw new RuntimeException(e);
+        }
+      });
+  }
+
   void initColumnHandles() throws RocksDBException {
     // will not include the DEFAULT columnHandle, we do not use it:
     columnHandlesBySegmentIdentifier =
@@ -394,7 +409,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
     for (int i = 0; i < segments.size(); i++) {
       columnFamilyHandleList.add(safeColumnHandle(segments.get(i)));
     }
-    try (final OperationTimer.TimingContext ignored = metrics.getReadLatency().startTimer()) {
+    try (final OperationTimer.TimingContext ignored = metrics.getMultiReadLatency().startTimer()) {
       List<byte[]> result = getDB().multiGetAsList(readOptions, columnFamilyHandleList, keys);
       return result != null ? result : Collections.emptyList();
     } catch (final RocksDBException e) {
@@ -418,12 +433,16 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   @Override
   public Optional<Bytes> getNearestKeyBefore(
       final SegmentIdentifier segmentIdentifier, final Bytes key) throws StorageException {
-    try (final RocksIterator rocksIterator =
-        getDB().newIterator(safeColumnHandle(segmentIdentifier))) {
-      rocksIterator.seekForPrev(key.toArrayUnsafe());
-      return Optional.of(rocksIterator)
-          .filter(AbstractRocksIterator::isValid)
-          .map(it -> Bytes.of(it.key()));
+    try (final OperationTimer.TimingContext ignored = metrics.getNearestKeyLatency().startTimer()) {
+      try (final RocksIterator rocksIterator =
+          getDB().newIterator(safeColumnHandle(segmentIdentifier))) {
+        rocksIterator.seekForPrev(key.toArrayUnsafe());
+        return Optional.of(rocksIterator)
+            .filter(AbstractRocksIterator::isValid)
+            .map(it -> Bytes.of(it.key()));
+      }
+    } catch (final Exception e) {
+      throw new StorageException(e);
     }
   }
 
