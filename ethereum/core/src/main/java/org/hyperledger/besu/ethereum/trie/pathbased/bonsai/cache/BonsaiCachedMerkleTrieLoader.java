@@ -35,8 +35,12 @@ import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
+// import org.slf4j.Logger;
+// import org.slf4j.LoggerFactory;
 
 public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
+
+  // private static final Logger LOG = LoggerFactory.getLogger(BonsaiCachedMerkleTrieLoader.class);
 
   private static final int ACCOUNT_CACHE_SIZE = 100_000;
   private static final int STORAGE_CACHE_SIZE = 200_000;
@@ -70,7 +74,10 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
               (location, hash) -> {
                 Optional<Bytes> node =
                     getAccountStateTrieNode(worldStateKeyValueStorage, location, hash);
-                node.ifPresent(bytes -> accountNodes.put(Hash.hash(bytes), bytes));
+                node.ifPresent(bytes -> {
+                  // LOG.info("[PRELOAD ACCOUNT] - " + System.nanoTime() + ": " + Hash.hash(bytes) + " - " + location + " - " + hash);
+                  accountNodes.put(Hash.hash(bytes), bytes);
+                });
                 return node;
               },
               worldStateRootHash,
@@ -111,7 +118,10 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
                             Optional<Bytes> node =
                                 getAccountStorageTrieNode(
                                     worldStateKeyValueStorage, accountHash, location, hash);
-                            node.ifPresent(bytes -> storageNodes.put(Hash.hash(bytes), bytes));
+                            node.ifPresent(bytes -> {
+                              // LOG.info("[PRELOAD STORAGE] - " + System.nanoTime() + ": " + Hash.hash(bytes) + " - " + location + " - " + accountHash);
+                              storageNodes.put(Hash.hash(bytes), bytes);
+                            });
                             return node;
                           },
                           Hash.hash(storageRoot),
@@ -132,10 +142,17 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
       final Bytes location,
       final Bytes32 nodeHash) {
     if (nodeHash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
+      // LOG.info("[READ ACCOUNT - EMPTY] - " + System.nanoTime() + ": " + nodeHash + " - " + location);
       return Optional.of(MerkleTrie.EMPTY_TRIE_NODE);
     } else {
-      return Optional.ofNullable(accountNodes.getIfPresent(nodeHash))
-          .or(() -> worldStateKeyValueStorage.getAccountStateTrieNode(location, nodeHash));
+      final Bytes cached = accountNodes.getIfPresent(nodeHash);
+      if (cached != null) {
+        // LOG.info("[READ ACCOUNT - HIT] - " + System.nanoTime() + ": " + nodeHash + " - " + location);
+        return Optional.of(cached);
+      } else {
+        // LOG.info("[READ ACCOUNT - MISS] - " + System.nanoTime() + ": " + nodeHash + " - " + location);
+        return worldStateKeyValueStorage.getAccountStateTrieNode(location, nodeHash);
+      }
     }
   }
 
@@ -145,13 +162,17 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
       final Bytes location,
       final Bytes32 nodeHash) {
     if (nodeHash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
+      // LOG.info("[READ STORAGE - EMPTY] - " + System.nanoTime() + ": " + nodeHash + " - " + location + " - " + accountHash);
       return Optional.of(MerkleTrie.EMPTY_TRIE_NODE);
     } else {
-      return Optional.ofNullable(storageNodes.getIfPresent(nodeHash))
-          .or(
-              () ->
-                  worldStateKeyValueStorage.getAccountStorageTrieNode(
-                      accountHash, location, nodeHash));
+      final Bytes cached = storageNodes.getIfPresent(nodeHash);
+      if (cached != null) {
+        // LOG.info("[READ STORAGE - HIT] - " + System.nanoTime() + ": " + nodeHash + " - " + location + " - " + accountHash);
+        return Optional.of(cached);
+      } else {
+        // LOG.info("[READ STORAGE - MISS] - " + System.nanoTime() + ": " + nodeHash + " - " + location + " - " + accountHash);
+        return worldStateKeyValueStorage.getAccountStorageTrieNode(accountHash, location, nodeHash);
+      }
     }
   }
 }

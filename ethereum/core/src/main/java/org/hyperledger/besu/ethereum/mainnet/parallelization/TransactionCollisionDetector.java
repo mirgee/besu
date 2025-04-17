@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.PathBasedAccount;
@@ -22,14 +23,19 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.PathBasedValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.preload.StorageConsumingMap;
 
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
 import org.apache.tuweni.units.bigints.UInt256;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class TransactionCollisionDetector {
+
+  private static final Logger LOG = LoggerFactory.getLogger(TransactionCollisionDetector.class);
 
   /**
    * Checks if there is a conflict between the current block's state and the given transaction.
@@ -114,6 +120,10 @@ public class TransactionCollisionDetector {
           addresses.addAll(pathBasedWorldStateUpdateAccumulator.getDeletedAccountAddresses());
         });
 
+    LOG.info("Addresses touched by transaction {}: {} - {}", transaction.getHash(),
+        Arrays.toString(addresses.stream().map(a -> a.addressHash()).toArray()),
+        Arrays.toString(addresses.stream().map(a -> a.toHexString()).toArray())
+      );
     return addresses;
   }
 

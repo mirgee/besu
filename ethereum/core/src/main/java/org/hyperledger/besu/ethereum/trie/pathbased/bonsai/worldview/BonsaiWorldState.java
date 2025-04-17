@@ -59,8 +59,12 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.rlp.RLP;
 import org.apache.tuweni.units.bigints.UInt256;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class BonsaiWorldState extends PathBasedWorldState {
+
+  private static final Logger LOG = LoggerFactory.getLogger(BonsaiWorldState.class);
 
   protected BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader;
 
@@ -91,12 +95,16 @@ public class BonsaiWorldState extends PathBasedWorldState {
     this.setAccumulator(
         new BonsaiWorldStateUpdateAccumulator(
             this,
-            (addr, value) ->
+            (addr, value) -> {
                 bonsaiCachedMerkleTrieLoader.preLoadAccount(
-                    getWorldStateStorage(), worldStateRootHash, addr),
-            (addr, value) ->
+                    getWorldStateStorage(), worldStateRootHash, addr);
+                LOG.info("{}: Finished preloading account with state hash {}", System.nanoTime(), worldStateRootHash);
+            },
+            (addr, value) -> {
                 this.bonsaiCachedMerkleTrieLoader.preLoadStorageSlot(
-                    getWorldStateStorage(), addr, value),
+                    getWorldStateStorage(), addr, value);
+                LOG.info("{}: Finished preloading storage with state hash {}", System.nanoTime(), worldStateRootHash);
+            },
             evmConfiguration));
   }
 
