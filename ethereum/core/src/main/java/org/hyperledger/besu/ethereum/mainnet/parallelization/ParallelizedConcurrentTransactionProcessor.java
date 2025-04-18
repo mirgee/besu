@@ -39,8 +39,6 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import com.google.common.annotations.VisibleForTesting;
 
@@ -52,8 +50,6 @@ import com.google.common.annotations.VisibleForTesting;
  */
 @SuppressWarnings({"unchecked", "rawtypes"})
 public class ParallelizedConcurrentTransactionProcessor {
-
-  private static final Logger LOG = LoggerFactory.getLogger(ParallelizedConcurrentTransactionProcessor.class);
 
   private final MainnetTransactionProcessor transactionProcessor;
 
@@ -254,7 +250,6 @@ public class ParallelizedConcurrentTransactionProcessor {
     /*
      * If `parallelizedTransactionContext` is not null, it means that the transaction had time to complete in the background.
      */
-    LOG.info("{}: Applying result of transaction {} with location {}", System.nanoTime(), transaction.getHash(), transactionLocation);
     if (parallelizedTransactionContext != null) {
       final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator =
           parallelizedTransactionContext.transactionAccumulator();

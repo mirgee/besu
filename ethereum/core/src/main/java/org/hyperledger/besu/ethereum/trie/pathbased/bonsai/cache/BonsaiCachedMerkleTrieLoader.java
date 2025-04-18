@@ -35,12 +35,12 @@ import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
-// import org.slf4j.Logger;
-// import org.slf4j.LoggerFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
 
-  // private static final Logger LOG = LoggerFactory.getLogger(BonsaiCachedMerkleTrieLoader.class);
+  private static final Logger LOG = LoggerFactory.getLogger(BonsaiCachedMerkleTrieLoader.class);
 
   private static final int ACCOUNT_CACHE_SIZE = 100_000;
   private static final int STORAGE_CACHE_SIZE = 200_000;
@@ -73,7 +73,7 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
           new StoredMerklePatriciaTrie<>(
               (location, hash) -> {
                 Optional<Bytes> node =
-                    getAccountStateTrieNode(worldStateKeyValueStorage, location, hash);
+                    getAccountStateTrieNode(worldStateKeyValueStorage, location, hash, worldStateRootHash);
                 node.ifPresent(bytes -> {
                   // LOG.info("[PRELOAD ACCOUNT] - " + System.nanoTime() + ": " + Hash.hash(bytes) + " - " + location + " - " + hash);
                   accountNodes.put(Hash.hash(bytes), bytes);
@@ -87,6 +87,7 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
     } catch (MerkleTrieException e) {
       // ignore exception for the cache
     } finally {
+      LOG.info("{}: Finished preloading account with state hash {}", System.nanoTime(), worldStateRootHash);
       worldStateKeyValueStorage.unSubscribe(storageSubscriberId);
     }
   }
@@ -94,16 +95,18 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
   public void preLoadStorageSlot(
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
       final Address account,
-      final StorageSlotKey slotKey) {
+      final StorageSlotKey slotKey,
+      final Hash worldStateRootHash) {
     CompletableFuture.runAsync(
-        () -> cacheStorageNodes(worldStateKeyValueStorage, account, slotKey));
+        () -> cacheStorageNodes(worldStateKeyValueStorage, account, slotKey, worldStateRootHash));
   }
 
   @VisibleForTesting
   public void cacheStorageNodes(
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
       final Address account,
-      final StorageSlotKey slotKey) {
+      final StorageSlotKey slotKey,
+      final Hash worldStateRootHash) {
     final Hash accountHash = account.addressHash();
     final long storageSubscriberId = worldStateKeyValueStorage.subscribe(this);
     try {
@@ -117,7 +120,7 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
                           (location, hash) -> {
                             Optional<Bytes> node =
                                 getAccountStorageTrieNode(
-                                    worldStateKeyValueStorage, accountHash, location, hash);
+                                    worldStateKeyValueStorage, accountHash, location, hash, worldStateRootHash);
                             node.ifPresent(bytes -> {
                               // LOG.info("[PRELOAD STORAGE] - " + System.nanoTime() + ": " + Hash.hash(bytes) + " - " + location + " - " + accountHash);
                               storageNodes.put(Hash.hash(bytes), bytes);
@@ -133,6 +136,7 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
                 }
               });
     } finally {
+      LOG.info("{}: Finished preloading storage with state hash {}", System.nanoTime(), worldStateRootHash);
       worldStateKeyValueStorage.unSubscribe(storageSubscriberId);
     }
   }
@@ -171,6 +175,47 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
         return Optional.of(cached);
       } else {
         // LOG.info("[READ STORAGE - MISS] - " + System.nanoTime() + ": " + nodeHash + " - " + location + " - " + accountHash);
+        return worldStateKeyValueStorage.getAccountStorageTrieNode(accountHash, location, nodeHash);
+      }
+    }
+  }
+
+  public Optional<Bytes> getAccountStateTrieNode(
+      final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
+      final Bytes location,
+      final Bytes32 nodeHash,
+      final Hash worldStateRootHash) {
+    if (nodeHash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
+      // LOG.info("[READ ACCOUNT - EMPTY] - " + System.nanoTime() + ": " + worldStateRootHash);
+      return Optional.of(MerkleTrie.EMPTY_TRIE_NODE);
+    } else {
+      final Bytes cached = accountNodes.getIfPresent(nodeHash);
+      if (cached != null) {
+        // LOG.info("[READ ACCOUNT - HIT] - " + System.nanoTime() + ": " + worldStateRootHash);
+        return Optional.of(cached);
+      } else {
+        // LOG.info("[READ ACCOUNT - MISS] - " + System.nanoTime() + ": " + worldStateRootHash);
+        return worldStateKeyValueStorage.getAccountStateTrieNode(location, nodeHash);
+      }
+    }
+  }
+
+  public Optional<Bytes> getAccountStorageTrieNode(
+      final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
+      final Hash accountHash,
+      final Bytes location,
+      final Bytes32 nodeHash,
+      final Hash worldStateRootHash) {
+    if (nodeHash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
+      // LOG.info("[READ STORAGE - EMPTY] - " + System.nanoTime() + ": " + worldStateRootHash);
+      return Optional.of(MerkleTrie.EMPTY_TRIE_NODE);
+    } else {
+      final Bytes cached = storageNodes.getIfPresent(nodeHash);
+      if (cached != null) {
+        // LOG.info("[READ STORAGE - HIT] - " + System.nanoTime() + ": " + worldStateRootHash);
+        return Optional.of(cached);
+      } else {
+        // LOG.info("[READ STORAGE - MISS] - " + System.nanoTime() + ": " + worldStateRootHash);
         return worldStateKeyValueStorage.getAccountStorageTrieNode(accountHash, location, nodeHash);
       }
     }

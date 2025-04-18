@@ -188,9 +188,11 @@ public abstract class PathBasedWorldState
       final Hash calculatedRootHash;
 
       if (blockHeader == null || !worldStateConfig.isTrieDisabled()) {
+        LOG.info("{}: Calculating root hash for world state hash {}", System.nanoTime(), worldStateRootHash);
         calculatedRootHash =
             calculateRootHash(
                 isStorageFrozen ? Optional.empty() : Optional.of(stateUpdater), accumulator);
+        LOG.info("{}: Finished calculating root hash for world state hash {}", System.nanoTime(), worldStateRootHash);
       } else {
         // if the trie is disabled, we cannot calculate the state root, so we directly use the root
         // of the block. It's important to understand that in all networks,
@@ -203,9 +205,7 @@ public abstract class PathBasedWorldState
       // then persist the TrieLog for that transition.
       // If specified but not a direct descendant simply store the new block hash.
       if (blockHeader != null) {
-        LOG.info("{}: Calculating root hash for block number {} hash {} world state hash {}", System.nanoTime(), blockHeader.getNumber(), blockHeader.getHash(), worldStateRootHash);
         verifyWorldStateRoot(calculatedRootHash, blockHeader);
-        LOG.info("{}: Finished calculating root hash for block number {} hash {} world state hash {}", System.nanoTime(), blockHeader.getNumber(), blockHeader.getHash(), worldStateRootHash);
         saveTrieLog =
             () -> {
               trieLogManager.saveTrieLog(localCopy, calculatedRootHash, blockHeader, this);

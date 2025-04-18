@@ -59,12 +59,8 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.rlp.RLP;
 import org.apache.tuweni.units.bigints.UInt256;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class BonsaiWorldState extends PathBasedWorldState {
-
-  private static final Logger LOG = LoggerFactory.getLogger(BonsaiWorldState.class);
 
   protected BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader;
 
@@ -98,12 +94,10 @@ public class BonsaiWorldState extends PathBasedWorldState {
             (addr, value) -> {
                 bonsaiCachedMerkleTrieLoader.preLoadAccount(
                     getWorldStateStorage(), worldStateRootHash, addr);
-                LOG.info("{}: Finished preloading account with state hash {}", System.nanoTime(), worldStateRootHash);
             },
             (addr, value) -> {
                 this.bonsaiCachedMerkleTrieLoader.preLoadStorageSlot(
-                    getWorldStateStorage(), addr, value);
-                LOG.info("{}: Finished preloading storage with state hash {}", System.nanoTime(), worldStateRootHash);
+                    getWorldStateStorage(), addr, value, worldStateRootHash);
             },
             evmConfiguration));
   }
@@ -154,7 +148,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
         createTrie(
             (location, hash) ->
                 bonsaiCachedMerkleTrieLoader.getAccountStateTrieNode(
-                    getWorldStateStorage(), location, hash),
+                    getWorldStateStorage(), location, hash, worldStateRootHash),
             worldStateRootHash);
 
     // for manicured tries and composting, collect branches here (not implemented)
@@ -259,7 +253,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
           createTrie(
               (location, key) ->
                   bonsaiCachedMerkleTrieLoader.getAccountStorageTrieNode(
-                      getWorldStateStorage(), updatedAddressHash, location, key),
+                      getWorldStateStorage(), updatedAddressHash, location, key, worldStateRootHash),
               storageRoot);
 
       // for manicured tries and composting, collect branches here (not implemented)

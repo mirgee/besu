@@ -38,7 +38,8 @@ public class NoopBonsaiCachedMerkleTrieLoader extends BonsaiCachedMerkleTrieLoad
   public void preLoadStorageSlot(
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
       final Address account,
-      final StorageSlotKey slotKey) {
+      final StorageSlotKey slotKey,
+      final Hash worldStateRootHash) {
     // noop
   }
 }
