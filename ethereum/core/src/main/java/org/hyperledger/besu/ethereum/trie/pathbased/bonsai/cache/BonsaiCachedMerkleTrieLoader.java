@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache;
 
 import static org.hyperledger.besu.metrics.BesuMetricCategory.BLOCKCHAIN;
+import static org.hyperledger.besu.ethereum.trie.CompactEncoding.bytesToPath;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
@@ -68,6 +69,7 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
       final Hash worldStateRootHash,
       final Address account) {
     final long storageSubscriberId = worldStateKeyValueStorage.subscribe(this);
+    Bytes path = bytesToPath(account.addressHash());
     try {
       final StoredMerklePatriciaTrie<Bytes, Bytes> accountTrie =
           new StoredMerklePatriciaTrie<>(
@@ -75,7 +77,7 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
                 Optional<Bytes> node =
                     getAccountStateTrieNode(worldStateKeyValueStorage, location, hash, worldStateRootHash);
                 node.ifPresent(bytes -> {
-                  // LOG.info("[PRELOAD ACCOUNT] - " + System.nanoTime() + ": " + Hash.hash(bytes) + " - " + location + " - " + hash);
+                  LOG.info("{}: Adding account node hash {} with location {} for initial account hash {} with path {}", System.nanoTime(), Hash.hash(bytes), location.toHexString(), account.addressHash(), path);
                   accountNodes.put(Hash.hash(bytes), bytes);
                 });
                 return node;
@@ -87,7 +89,7 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
     } catch (MerkleTrieException e) {
       // ignore exception for the cache
     } finally {
-      LOG.info("{}: Finished preloading account with state hash {}", System.nanoTime(), worldStateRootHash);
+      LOG.info("{}: Finished preloading account with state hash {} and account hash {} with path {}", System.nanoTime(), worldStateRootHash, account.addressHash(), path);
       worldStateKeyValueStorage.unSubscribe(storageSubscriberId);
     }
   }
@@ -109,6 +111,7 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
       final Hash worldStateRootHash) {
     final Hash accountHash = account.addressHash();
     final long storageSubscriberId = worldStateKeyValueStorage.subscribe(this);
+    Bytes path = bytesToPath(slotKey.getSlotHash());
     try {
       worldStateKeyValueStorage
           .getStateTrieNode(Bytes.concatenate(accountHash, Bytes.EMPTY))
@@ -122,7 +125,7 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
                                 getAccountStorageTrieNode(
                                     worldStateKeyValueStorage, accountHash, location, hash, worldStateRootHash);
                             node.ifPresent(bytes -> {
-                              // LOG.info("[PRELOAD STORAGE] - " + System.nanoTime() + ": " + Hash.hash(bytes) + " - " + location + " - " + accountHash);
+                              LOG.info("{}: Adding storage node hash {} with location {} for initial slot hash {} with path {}", System.nanoTime(), Hash.hash(bytes), location.toHexString(), slotKey.getSlotHash(), path);
                               storageNodes.put(Hash.hash(bytes), bytes);
                             });
                             return node;
@@ -136,7 +139,7 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
                 }
               });
     } finally {
-      LOG.info("{}: Finished preloading storage with state hash {}", System.nanoTime(), worldStateRootHash);
+      LOG.info("{}: Finished preloading storage with state hash {} and slot hash {} with path {}", System.nanoTime(), worldStateRootHash, slotKey.getSlotHash(), path);
       worldStateKeyValueStorage.unSubscribe(storageSubscriberId);
     }
   }
