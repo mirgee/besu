@@ -30,13 +30,13 @@ import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.metrics.ObservableMetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.metrics.OperationTimer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ExecutorService;
@@ -51,9 +51,10 @@ import org.apache.tuweni.bytes.Bytes32;
 
 public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
 
+  private static final Logger LOG = LoggerFactory.getLogger(BonsaiCachedMerkleTrieLoader.class);
+
   private static final int ACCOUNT_CACHE_SIZE = 100_000;
   private static final int STORAGE_CACHE_SIZE = 200_000;
-  private static final int STRIDE = 4;
 
   private final Cache<Bytes, Bytes> accountNodes =
       CacheBuilder.newBuilder().recordStats().maximumSize(ACCOUNT_CACHE_SIZE).build();
@@ -200,90 +201,39 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
     final OperationTimer.TimingContext timer = processPreloadTimer.startTimer();
     final long subscriptionId = storage.subscribe(this);
     try {
-      List<byte[]> firstPassKeys = new ArrayList<>();
-      List<List<Bytes>> allPaths = new ArrayList<>();
-      List<Boolean> allIsAccountList = new ArrayList<>();
-      List<List<Integer>> allMarkerIndicesList = new ArrayList<>();
+      List<byte[]> allKeys = new ArrayList<>();
+      List<Boolean> isAccountList = new ArrayList<>();
 
       for (Address account : task.getAccountPreloads()) {
         Bytes path = bytesToPath(account.addressHash());
-        List<Bytes> slices = new ArrayList<>();
-        for (int i = 1; i <= path.size(); i++) slices.add(path.slice(0, i));
-        allPaths.add(slices);
-        allIsAccountList.add(true);
-
-        List<Integer> markers = new ArrayList<>();
-        for (int i = 0; i < slices.size(); i += STRIDE) markers.add(i);
-        if (markers.get(markers.size() - 1) != slices.size() - 1) {
-          markers.add(slices.size() - 1);
+        for (int i = 1; i <= path.size(); i++) {
+          allKeys.add(path.slice(0, i).toArrayUnsafe());
+          isAccountList.add(true);
         }
-        allMarkerIndicesList.add(markers);
-        for (int i : markers) firstPassKeys.add(slices.get(i).toArrayUnsafe());
       }
 
       for (StoragePreloadRequest req : task.getStoragePreloads()) {
         Bytes accountHash = req.account.addressHash();
         Bytes path = bytesToPath(req.slotKey.getSlotHash());
-        List<Bytes> slices = new ArrayList<>();
         for (int i = 1; i <= path.size(); i++) {
-          slices.add(Bytes.concatenate(accountHash, path.slice(0, i)));
-        }
-        allPaths.add(slices);
-        allIsAccountList.add(false);
-
-        List<Integer> markers = new ArrayList<>();
-        for (int i = 0; i < slices.size(); i += STRIDE) markers.add(i);
-        if (markers.get(markers.size() - 1) != slices.size() - 1) {
-          markers.add(slices.size() - 1);
-        }
-        allMarkerIndicesList.add(markers);
-        for (int i : markers) firstPassKeys.add(slices.get(i).toArrayUnsafe());
-      }
-
-      List<Optional<byte[]>> firstValues = storage.getMultipleKeys(firstPassKeys);
-
-      List<byte[]> secondPassKeys = new ArrayList<>();
-      List<Boolean> secondPassIsAccount = new ArrayList<>();
-      int keyIdx = 0;
-
-      for (int i = 0; i < allPaths.size(); i++) {
-        List<Bytes> slices = allPaths.get(i);
-        List<Integer> markers = allMarkerIndicesList.get(i);
-        boolean isAccount = allIsAccountList.get(i);
-        Set<Integer> live = new HashSet<>();
-
-        for (int m : markers) {
-          Optional<byte[]> val = firstValues.get(keyIdx++);
-          if (val.isPresent()) {
-            Bytes node = Bytes.wrap(val.get());
-            if (isAccount) accountNodes.put(Hash.hash(node), node);
-            else storageNodes.put(Hash.hash(node), node);
-            live.add(m);
-          }
-        }
-
-        for (int j = 0; j < markers.size() - 1; j++) {
-          int left = markers.get(j);
-          int right = markers.get(j + 1);
-          if (!live.contains(left) && !live.contains(right)) continue;
-          for (int k = left + 1; k < right; k++) {
-            secondPassKeys.add(slices.get(k).toArrayUnsafe());
-            secondPassIsAccount.add(isAccount);
-          }
+          allKeys.add(Bytes.concatenate(accountHash, path.slice(0, i)).toArrayUnsafe());
+          isAccountList.add(false);
         }
       }
 
-      if (!secondPassKeys.isEmpty()) {
-        List<Optional<byte[]>> secondValues = storage.getMultipleKeys(secondPassKeys);
-        for (int i = 0; i < secondValues.size(); i++) {
-          Optional<byte[]> val = secondValues.get(i);
-          if (val.isPresent()) {
-            Bytes node = Bytes.wrap(val.get());
-            if (secondPassIsAccount.get(i)) accountNodes.put(Hash.hash(node), node);
-            else storageNodes.put(Hash.hash(node), node);
-          }
+      List<Optional<byte[]>> values = storage.getMultipleKeys(allKeys);
+
+      for (int i = 0; i < values.size(); i++) {
+        Optional<byte[]> val = values.get(i);
+        if (val.isPresent()) {
+          Bytes node = Bytes.wrap(val.get());
+          if (isAccountList.get(i)) accountNodes.put(Hash.hash(node), node);
+          else storageNodes.put(Hash.hash(node), node);
         }
       }
+
+    } catch (Exception ex) {
+      LOG.error("Error processing preload task: ", ex);
     } finally {
       storage.unSubscribe(subscriptionId);
       timer.stopTimer();

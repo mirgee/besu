@@ -21,6 +21,8 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.TrieGenerator;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.preload.PreloadTask;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.preload.StoragePreloadRequest;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
@@ -40,6 +42,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -185,5 +188,131 @@ class BonsaiCachedMerkleTrieLoaderTest {
           return TrieIterator.State.CONTINUE;
         });
     assertThat(originalSlots).isNotEmpty().isEqualTo(cachedSlots);
+  }
+
+  @Test
+  void shouldHandleLargePreloadTask() {
+    // 1) Build a world‐state with 20 pseudo‐random accounts
+    final int N = 128;
+    final List<Address> accounts = new ArrayList<>();
+    for (int i = 0; i < N; i++) {
+      accounts.add(Address.wrap(Hash.hash(Bytes.of((byte) i)).slice(12, 20)));
+    }
+
+    // new in‐memory storage + coordinator for this big trie
+    final StorageProvider sp = new InMemoryKeyValueStorageProvider();
+    final BonsaiWorldStateKeyValueStorage worldState =
+        new BonsaiWorldStateKeyValueStorage(
+            sp, new NoOpMetricsSystem(), DataStorageConfiguration.DEFAULT_BONSAI_CONFIG);
+    final WorldStateStorageCoordinator coordinator =
+        new WorldStateStorageCoordinator(worldState);
+
+    // 2) Generate the trie and materialize accounts+storage in the world‐state
+    final MerkleTrie<Bytes, Bytes> worldTrie =
+        TrieGenerator.generateTrie(
+            coordinator,
+            accounts.stream()
+                        .map(Address::addressHash)
+                        .collect(Collectors.toList()));
+
+    // 3) Gather ALL storage‐slot requests from every account
+    final List<StoragePreloadRequest> storageReqs = new ArrayList<>();
+    for (Address acct : accounts) {
+      Hash acctHash = acct.addressHash();
+      // pull out the on‐chain account value (to get storage root)
+      final PmtStateTrieAccountValue val =
+          PmtStateTrieAccountValue.readFrom(
+              RLP.input(worldTrie.get(acctHash).orElseThrow()));
+      final Bytes32 storageRoot = val.getStorageRoot();
+
+      // build a trie for that account's storage so we can visit every leaf
+      final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
+          new StoredMerklePatriciaTrie<>(
+              (loc, hash) ->
+                  worldState.getAccountStorageTrieNode(acctHash, loc, hash),
+              storageRoot,
+              Function.identity(),
+              Function.identity());
+
+      // collect every leaf as a StoragePreloadRequest
+      storageTrie.visitLeafs(
+          (slotHash, node) -> {
+            storageReqs.add(
+                new StoragePreloadRequest(
+                    acct, new StorageSlotKey(Hash.wrap(slotHash), Optional.empty())));
+            return TrieIterator.State.CONTINUE;
+          });
+    }
+
+    // sanity check—we really did collect a lot
+    assertThat(storageReqs).hasSizeGreaterThanOrEqualTo(N);
+
+    // 4) Make and run the big PreloadTask
+    final BonsaiCachedMerkleTrieLoader loader = new BonsaiCachedMerkleTrieLoader(new NoOpMetricsSystem());
+    final PreloadTask task =
+        new PreloadTask(accounts, storageReqs, worldState);
+    // this will synchronously process all the account + storage preloads
+    loader.processPreloadTask(task);
+
+    // --- now verify every single account & storage leaf is served from the cache
+
+    // A) Account nodes
+    final StoredMerklePatriciaTrie<Bytes, Bytes> cachedAcctTrie =
+        new StoredMerklePatriciaTrie<>(
+            (loc, hash) ->
+                loader.getAccountStateTrieNode(worldState, loc, hash),
+            worldTrie.getRootHash(),
+            Function.identity(),
+            Function.identity());
+
+    for (Address acct : accounts) {
+      // if any account isn't cached you’ll get an exception or mismatch here
+      assertThat(cachedAcctTrie.get(acct.addressHash()))
+          .as("account %s should round-trip", acct)
+          .isEqualTo(worldTrie.get(acct.addressHash()));
+    }
+
+    // B) Storage nodes
+    for (Address acct : accounts) {
+      Hash acctHash = acct.addressHash();
+      final PmtStateTrieAccountValue val =
+          PmtStateTrieAccountValue.readFrom(
+              RLP.input(worldTrie.get(acctHash).orElseThrow()));
+      final Bytes32 storageRoot = val.getStorageRoot();
+
+      final StoredMerklePatriciaTrie<Bytes, Bytes> cachedStorageTrie =
+          new StoredMerklePatriciaTrie<>(
+              (loc, hash) ->
+                  loader.getAccountStorageTrieNode(worldState, acctHash, loc, hash),
+              storageRoot,
+              Function.identity(),
+              Function.identity());
+
+      // walk the original trie again and compare every leaf
+      final List<Bytes> originalSlots = new ArrayList<>();
+      final List<Bytes> cachedSlots = new ArrayList<>();
+
+      // original
+      new StoredMerklePatriciaTrie<>(
+          (loc, hash) ->
+              worldState.getAccountStorageTrieNode(acctHash, loc, hash),
+          storageRoot,
+          Function.identity(),
+          Function.identity())
+        .visitLeafs((slotHash, node) -> {
+          originalSlots.add(node.getEncodedBytes());
+          return TrieIterator.State.CONTINUE;
+        });
+
+      // cached
+      cachedStorageTrie.visitLeafs((slotHash, node) -> {
+        cachedSlots.add(node.getEncodedBytes());
+        return TrieIterator.State.CONTINUE;
+      });
+
+      assertThat(cachedSlots)
+          .as("storage slots for account %s", acct)
+          .isEqualTo(originalSlots);
+    }
   }
 }
