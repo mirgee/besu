@@ -225,7 +225,8 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       }
 
       blockUpdater.commit();
-      balBuilder.updateFromTransactionAccumulator(blockUpdater, i, transaction.isContractCreation());
+      balBuilder.updateFromTransactionAccumulator(
+          blockUpdater, i, transaction.isContractCreation());
       blockUpdater.markTransactionBoundary();
 
       currentGasUsed += transaction.getGasLimit() - transactionProcessingResult.getGasRemaining();
@@ -337,7 +338,8 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
     }
 
     return new BlockProcessingResult(
-        Optional.of(new BlockProcessingOutputs(worldState, receipts, maybeRequests, balBuilder.build())),
+        Optional.of(
+            new BlockProcessingOutputs(worldState, receipts, maybeRequests, balBuilder.build())),
         parallelizedTxFound ? Optional.of(nbParallelTx) : Optional.empty());
   }
 
