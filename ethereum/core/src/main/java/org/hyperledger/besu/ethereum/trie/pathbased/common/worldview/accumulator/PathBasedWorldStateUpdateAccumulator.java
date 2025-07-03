@@ -68,6 +68,8 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
   private final Set<Address> storageToClear = Collections.synchronizedSet(new HashSet<>());
   protected final EvmConfiguration evmConfiguration;
 
+  private int currentTxIndex = 0;
+
   // storage sub mapped by _hashed_ key.  This is because in self_destruct calls we need to
   // enumerate the old storage and delete it.  Those are trie stored by hashed key by spec and the
   // alternative was to keep a giant pre-image cache of the entire trie.
@@ -100,6 +102,10 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     this.isAccumulatorStateChanged = true;
   }
 
+  public void setCurrentTxIndex(final int txIndex) {
+    this.currentTxIndex = txIndex;
+  }
+
   /**
    * Integrates prior state changes from an external source into the current state. This method
    * retrieves state modifications from the specified source and adds them to the current state's
@@ -116,35 +122,45 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
         .getAccountsToUpdate()
         .forEach(
             (address, pathBasedValue) -> {
-              ACCOUNT copyPrior =
-                  pathBasedValue.getPrior() != null
-                      ? copyAccount(pathBasedValue.getPrior(), this, false)
-                      : null;
-              ACCOUNT copyUpdated =
-                  pathBasedValue.getUpdated() != null
-                      ? copyAccount(pathBasedValue.getUpdated(), this, true)
-                      : null;
-              accountsToUpdate.put(
-                  address,
-                  new PathBasedValue<>(
-                      copyPrior,
-                      copyUpdated,
-                      pathBasedValue.isLastStepCleared(),
-                      pathBasedValue.isClearedAtLeastOnce(),
-                      pathBasedValue.isEvmRead()));
+              var currentAccountValue = accountsToUpdate.get(address);
+              if (currentAccountValue != null) {
+                var entries = pathBasedValue.getUpdatedMap().entrySet().iterator();
+                while (entries.hasNext()) {
+                  var entry = entries.next();
+                  boolean isLast = !entries.hasNext(); // TODO: May not be correct
+                  var accountCopy = copyAccount(entry.getValue(), this, isLast);
+                  currentAccountValue.setUpdated(currentTxIndex, accountCopy);
+                }
+              } else {
+                accountsToUpdate.put(
+                    address,
+                    new PathBasedValue<>(
+                        currentTxIndex,
+                        pathBasedValue.getPrior(),
+                        pathBasedValue.getUpdated(),
+                        pathBasedValue.isLastStepCleared(),
+                        pathBasedValue.isClearedAtLeastOnce(),
+                        pathBasedValue.isEvmRead()));
+              }
             });
     source
         .getCodeToUpdate()
         .forEach(
             (address, pathBasedValue) -> {
-              codeToUpdate.put(
-                  address,
-                  new PathBasedValue<>(
-                      pathBasedValue.getPrior(),
-                      pathBasedValue.getUpdated(),
-                      pathBasedValue.isLastStepCleared(),
-                      pathBasedValue.isClearedAtLeastOnce(),
-                      pathBasedValue.isEvmRead()));
+              var currentCodeValue = codeToUpdate.get(address);
+              if (currentCodeValue != null) {
+                currentCodeValue.importUpdatesFromSource(pathBasedValue);
+              } else {
+                codeToUpdate.put(
+                    address,
+                    new PathBasedValue<>(
+                        currentTxIndex,
+                        pathBasedValue.getPrior(),
+                        pathBasedValue.getUpdated(),
+                        pathBasedValue.isLastStepCleared(),
+                        pathBasedValue.isClearedAtLeastOnce(),
+                        pathBasedValue.isEvmRead()));
+              }
             });
     source
         .getStorageToUpdate()
@@ -158,14 +174,20 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
                               address, new ConcurrentHashMap<>(), storagePreloader));
               slots.forEach(
                   (storageSlotKey, uInt256PathBasedValue) -> {
-                    storageConsumingMap.put(
-                        storageSlotKey,
-                        new PathBasedValue<>(
-                            uInt256PathBasedValue.getPrior(),
-                            uInt256PathBasedValue.getUpdated(),
-                            uInt256PathBasedValue.isLastStepCleared(),
-                            uInt256PathBasedValue.isClearedAtLeastOnce(),
-                            uInt256PathBasedValue.isEvmRead()));
+                    var currentAccountValue = storageConsumingMap.get(storageSlotKey);
+                    if (currentAccountValue != null) {
+                      currentAccountValue.importUpdatesFromSource(uInt256PathBasedValue);
+                    } else {
+                      storageConsumingMap.put(
+                          storageSlotKey,
+                          new PathBasedValue<>(
+                              currentTxIndex,
+                              uInt256PathBasedValue.getPrior(),
+                              uInt256PathBasedValue.getUpdated(),
+                              uInt256PathBasedValue.isLastStepCleared(),
+                              uInt256PathBasedValue.isClearedAtLeastOnce(),
+                              uInt256PathBasedValue.isEvmRead()));
+                    }
                   });
             });
     storageToClear.addAll(source.storageToClear);
@@ -203,6 +225,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
               accountsToUpdate.putIfAbsent(
                   address,
                   new PathBasedValue<>(
+                      currentTxIndex,
                       copyPrior,
                       copyUpdated,
                       pathBasedValue.isLastStepCleared(),
@@ -216,6 +239,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
               codeToUpdate.putIfAbsent(
                   address,
                   new PathBasedValue<>(
+                      currentTxIndex,
                       pathBasedValue.getPrior(),
                       pathBasedValue.getPrior(),
                       pathBasedValue.isLastStepCleared(),
@@ -237,6 +261,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
                     storageConsumingMap.putIfAbsent(
                         storageSlotKey,
                         new PathBasedValue<>(
+                            currentTxIndex,
                             uInt256PathBasedValue.getPrior(),
                             uInt256PathBasedValue.getPrior(),
                             uInt256PathBasedValue.isLastStepCleared(),
@@ -280,7 +305,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     PathBasedValue<ACCOUNT> pathBasedValue = accountsToUpdate.get(address);
 
     if (pathBasedValue == null) {
-      pathBasedValue = new PathBasedValue<>(null, null);
+      pathBasedValue = new PathBasedValue<>(currentTxIndex, null, null);
       accountsToUpdate.put(address, pathBasedValue);
     } else if (pathBasedValue.getUpdated() != null) {
       if (pathBasedValue.getUpdated().isEmpty()) {
@@ -300,7 +325,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
             Hash.EMPTY_TRIE_HASH,
             Hash.EMPTY,
             true);
-    pathBasedValue.setUpdated(newAccount);
+    pathBasedValue.setUpdated(currentTxIndex, newAccount);
     return track(new UpdateTrackingAccount<>(newAccount));
   }
 
@@ -349,11 +374,17 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
           accountsToUpdate.put(
               address,
               new PathBasedValue<>(
-                  (ACCOUNT) pathBasedAccount, mutableAccount, false, false, isEvmRead));
+                  currentTxIndex,
+                  (ACCOUNT) pathBasedAccount,
+                  mutableAccount,
+                  false,
+                  false,
+                  isEvmRead));
           return mutableAccount;
         } else {
           // add the empty read in accountsToUpdate
-          accountsToUpdate.put(address, new PathBasedValue<>(null, null, false, false, isEvmRead));
+          accountsToUpdate.put(
+              address, new PathBasedValue<>(currentTxIndex, null, null, false, false, isEvmRead));
           return null;
         }
       } else {
@@ -385,11 +416,13 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
       final PathBasedValue<ACCOUNT> accountValue =
           accountsToUpdate.computeIfAbsent(
               deletedAddress,
-              __ -> loadAccountFromParent(deletedAddress, new PathBasedValue<>(null, null, true)));
+              __ ->
+                  loadAccountFromParent(
+                      deletedAddress, new PathBasedValue<>(currentTxIndex, null, null, true)));
       storageToClear.add(deletedAddress);
       final PathBasedValue<Bytes> codeValue = codeToUpdate.get(deletedAddress);
       if (codeValue != null) {
-        codeValue.setUpdated(null).setCleared();
+        codeValue.setUpdated(currentTxIndex, null).setCleared();
       } else {
         wrappedWorldView()
             .getCode(
@@ -401,7 +434,8 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
             .ifPresent(
                 deletedCode ->
                     codeToUpdate.put(
-                        deletedAddress, new PathBasedValue<>(deletedCode, null, true)));
+                        deletedAddress,
+                        new PathBasedValue<>(currentTxIndex, deletedCode, null, true)));
       }
 
       // mark all updated storage as to be cleared
@@ -417,9 +451,12 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
         final Map.Entry<StorageSlotKey, PathBasedValue<UInt256>> updateEntry = iter.next();
         final PathBasedValue<UInt256> updatedSlot = updateEntry.getValue();
         if (updatedSlot.getPrior() == null || updatedSlot.getPrior().isZero()) {
+          // TODO: We can't do this know - if prior is value before committing, we are potentially
+          // removing
+          // imporant intermediate states
           iter.remove();
         } else {
-          updatedSlot.setUpdated(null).setCleared();
+          updatedSlot.setUpdated(currentTxIndex, null).setCleared();
         }
       }
 
@@ -435,14 +472,14 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
                   if (!deletedStorageUpdates.containsKey(storageSlotKey)) {
                     final UInt256 value = UInt256.fromBytes(RLP.decodeOne(entryValue));
                     deletedStorageUpdates.put(
-                        storageSlotKey, new PathBasedValue<>(value, null, true));
+                        storageSlotKey, new PathBasedValue<>(currentTxIndex, value, null, true));
                   }
                 });
       }
       if (deletedStorageUpdates.isEmpty()) {
         storageToUpdate.remove(deletedAddress);
       }
-      accountValue.setUpdated(null);
+      accountValue.setUpdated(currentTxIndex, null);
     }
 
     getUpdatedAccounts().parallelStream()
@@ -463,11 +500,13 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
                 updatedAccount = createAccount(this, tracked);
                 tracked.setWrappedAccount(updatedAccount);
                 if (updatedAccountValue == null) {
-                  accountsToUpdate.put(updatedAddress, new PathBasedValue<>(null, updatedAccount));
+                  accountsToUpdate.put(
+                      updatedAddress, new PathBasedValue<>(currentTxIndex, null, updatedAccount));
                   codeToUpdate.put(
-                      updatedAddress, new PathBasedValue<>(null, updatedAccount.getCode()));
+                      updatedAddress,
+                      new PathBasedValue<>(currentTxIndex, null, updatedAccount.getCode()));
                 } else {
-                  updatedAccountValue.setUpdated(updatedAccount);
+                  updatedAccountValue.setUpdated(currentTxIndex, updatedAccount);
                 }
               } else {
                 updatedAccount = tracked.getWrappedAccount();
@@ -488,6 +527,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
                         updatedAddress,
                         addr ->
                             new PathBasedValue<>(
+                                currentTxIndex,
                                 wrappedWorldView()
                                     .getCode(
                                         addr,
@@ -497,7 +537,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
                                             .orElse(Hash.EMPTY))
                                     .orElse(null),
                                 null));
-                pendingCode.setUpdated(updatedAccount.getCode());
+                pendingCode.setUpdated(currentTxIndex, updatedAccount.getCode());
               }
 
               if (tracked.getStorageWasCleared()) {
@@ -522,9 +562,11 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
                           pendingStorageUpdates.put(
                               slotKey,
                               new PathBasedValue<>(
-                                  updatedAccount.getOriginalStorageValue(keyUInt), value));
+                                  currentTxIndex,
+                                  updatedAccount.getOriginalStorageValue(keyUInt),
+                                  value));
                         } else {
-                          pendingValue.setUpdated(value);
+                          pendingValue.setUpdated(currentTxIndex, value);
                         }
                       });
 
@@ -583,7 +625,12 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
                   .getStorageValueByStorageSlotKey(address, storageSlotKey, isEvmRead);
       final PathBasedValue<UInt256> newSlotValue =
           new PathBasedValue<>(
-              valueUInt.orElse(null), valueUInt.orElse(null), false, false, isEvmRead);
+              currentTxIndex,
+              valueUInt.orElse(null),
+              valueUInt.orElse(null),
+              false,
+              false,
+              isEvmRead);
       storageToUpdate
           .computeIfAbsent(
               address,
@@ -723,7 +770,8 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
       if (expectedValue == null && replacementValue != null) {
         accountsToUpdate.put(
             address,
-            new PathBasedValue<>(null, createAccount(this, address, replacementValue, true)));
+            new PathBasedValue<>(
+                currentTxIndex, null, createAccount(this, address, replacementValue, true)));
       } else {
         throw new IllegalStateException(
             String.format(
@@ -748,10 +796,11 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
           // private copy
           accountsToUpdate.remove(address);
         } else {
-          accountValue.setUpdated(null);
+          accountValue.setUpdated(currentTxIndex, null);
         }
       } else {
-        accountValue.setUpdated(createAccount(wrappedWorldView(), address, replacementValue, true));
+        accountValue.setUpdated(
+            currentTxIndex, createAccount(wrappedWorldView(), address, replacementValue, true));
       }
     }
   }
@@ -762,7 +811,8 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
       final Account parentAccount = wrappedWorldView().get(address);
       if (parentAccount instanceof PathBasedAccount account) {
         final PathBasedValue<ACCOUNT> loadedAccountValue =
-            new PathBasedValue<>(copyAccount((ACCOUNT) account), ((ACCOUNT) account));
+            new PathBasedValue<>(
+                currentTxIndex, copyAccount((ACCOUNT) account), ((ACCOUNT) account));
         accountsToUpdate.put(address, loadedAccountValue);
         return loadedAccountValue;
       } else {
@@ -789,14 +839,14 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
                   address, Optional.ofNullable(expectedCode).map(Hash::hash).orElse(Hash.EMPTY))
               .orElse(Bytes.EMPTY);
       if (!storedCode.isEmpty()) {
-        codeValue = new PathBasedValue<>(storedCode, storedCode);
+        codeValue = new PathBasedValue<>(currentTxIndex, storedCode, storedCode);
         codeToUpdate.put(address, codeValue);
       }
     }
 
     if (codeValue == null) {
       if ((expectedCode == null || expectedCode.isEmpty()) && replacementCode != null) {
-        codeToUpdate.put(address, new PathBasedValue<>(null, replacementCode));
+        codeToUpdate.put(address, new PathBasedValue<>(currentTxIndex, null, replacementCode));
       } else {
         throw new IllegalStateException(
             String.format(
@@ -819,7 +869,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
       if (replacementCode == null && codeValue.getPrior() == null) {
         codeToUpdate.remove(address);
       } else {
-        codeValue.setUpdated(replacementCode);
+        codeValue.setUpdated(currentTxIndex, replacementCode);
       }
     }
   }
@@ -855,7 +905,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
       final Optional<UInt256> storageValue =
           wrappedWorldView().getStorageValueByStorageSlotKey(address, storageSlotKey, false);
       if (storageValue.isPresent()) {
-        slotValue = new PathBasedValue<>(storageValue.get(), storageValue.get());
+        slotValue = new PathBasedValue<>(currentTxIndex, storageValue.get(), storageValue.get());
         storageToUpdate
             .computeIfAbsent(
                 address,
@@ -867,7 +917,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     if (slotValue == null) {
       if ((expectedValue == null || expectedValue.isZero()) && replacementValue != null) {
         maybeCreateStorageMap(storageMap, address)
-            .put(storageSlotKey, new PathBasedValue<>(null, replacementValue));
+            .put(storageSlotKey, new PathBasedValue<>(currentTxIndex, null, replacementValue));
       } else {
         throw new IllegalStateException(
             String.format(
@@ -901,7 +951,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
           storageToUpdate.remove(address);
         }
       } else {
-        slotValue.setUpdated(replacementValue);
+        slotValue.setUpdated(currentTxIndex, replacementValue);
       }
     }
   }

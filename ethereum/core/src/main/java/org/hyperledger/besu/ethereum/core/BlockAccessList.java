@@ -21,6 +21,7 @@ import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListDecoder;
 import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListEncoder;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPOutput;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.PathBasedAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -530,5 +531,72 @@ public class BlockAccessList {
                 }
               });
     }
+  }
+
+  public static BlockAccessList buildFromAccumulator(
+      final PathBasedWorldStateUpdateAccumulator<BonsaiAccount> accumulator) {
+    final Builder builder = new Builder();
+
+    accumulator
+        .getStorageToUpdate()
+        .forEach(
+            (address, slotMap) -> {
+              slotMap.forEach(
+                  (slotKey, pathBasedValue) -> {
+                    UInt256 prior =
+                        Optional.ofNullable(pathBasedValue.getPrior()).orElse(UInt256.ZERO);
+                    for (Map.Entry<Integer, UInt256> entry :
+                        pathBasedValue.getUpdatedMap().entrySet()) {
+                      int txIndex = entry.getKey();
+                      UInt256 updated = Optional.ofNullable(entry.getValue()).orElse(UInt256.ZERO);
+                      if (!prior.equals(updated)) {
+                        builder.storageWrite(address, slotKey, txIndex, updated);
+                      } else if (pathBasedValue.isEvmRead()) {
+                        builder.storageRead(address, slotKey);
+                      }
+                      prior = updated;
+                    }
+                  });
+            });
+
+    accumulator
+        .getAccountsToUpdate()
+        .forEach(
+            (address, pathBasedValue) -> {
+              PathBasedAccount prior = pathBasedValue.getPrior();
+              for (Map.Entry<Integer, BonsaiAccount> entry :
+                  pathBasedValue.getUpdatedMap().entrySet()) {
+                int txIndex = entry.getKey();
+                final PathBasedAccount updated = pathBasedValue.getUpdated();
+
+                final BigInteger priorBalance =
+                    prior != null ? prior.getBalance().getAsBigInteger() : BigInteger.ZERO;
+                final BigInteger postBalance =
+                    updated != null ? updated.getBalance().getAsBigInteger() : BigInteger.ZERO;
+
+                if (!priorBalance.equals(postBalance)
+                    || (prior == null && updated != null)
+                    || (prior != null && updated == null)) {
+                  builder.balanceChange(address, txIndex, Wei.of(postBalance).toBytes());
+                }
+
+                final Bytes priorCode = prior != null ? prior.getCode() : Bytes.EMPTY;
+                final Bytes postCode = updated != null ? updated.getCode() : Bytes.EMPTY;
+                if (!priorCode.equals(postCode) && !postCode.isEmpty()) {
+                  builder.codeChange(address, txIndex, postCode);
+                }
+
+                if (prior != null && !prior.getCode().isEmpty()) {
+                  final long priorNonce = prior.getNonce();
+                  final long postNonce = updated != null ? updated.getNonce() : 0L;
+                  if (postNonce > priorNonce) {
+                    builder.nonceChange(address, txIndex, postNonce);
+                  }
+                }
+                prior = updated;
+              }
+            });
+
+    return builder.build();
   }
 }

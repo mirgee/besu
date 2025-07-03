@@ -52,6 +52,7 @@ import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessingContext;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallException;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
@@ -278,14 +279,15 @@ public class BlockSimulator {
             .<MiningBeneficiaryCalculator>map(feeRecipient -> header -> feeRecipient)
             .orElseGet(protocolSpec::getMiningBeneficiaryCalculator);
 
-    final BlockAccessList.Builder balBuilder = BlockAccessList.builder();
-
     for (int i = 0; i < blockStateCall.getCalls().size(); i++) {
       final CallParameter callParameter = blockStateCall.getCalls().get(i);
       OperationTracer operationTracer =
           isTraceTransfers ? new EthTransferLogOperationTracer() : OperationTracer.NO_TRACING;
 
       final WorldUpdater transactionUpdater = ws.updater();
+      if (transactionUpdater instanceof BonsaiWorldStateUpdateAccumulator accum) {
+        accum.setCurrentTxIndex(i);
+      }
       long gasLimit =
           transactionSimulator.calculateSimulationGasCap(
               blockHeader,
@@ -322,12 +324,11 @@ public class BlockSimulator {
 
       transactionUpdater.commit();
 
-      balBuilder.updateFromTransactionAccumulator(
-          transactionUpdater, i, callParameter.getTo().isEmpty());
-
       blockStateCallSimulationResult.add(transactionSimulationResult, ws, operationTracer);
     }
-    blockStateCallSimulationResult.set(balBuilder.build());
+    if (ws.updater() instanceof BonsaiWorldStateUpdateAccumulator accum) {
+      blockStateCallSimulationResult.set(BlockAccessList.buildFromAccumulator(accum));
+    }
     return blockStateCallSimulationResult;
   }
 
