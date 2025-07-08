@@ -200,10 +200,10 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
     boolean parallelizedTxFound = false;
     int nbParallelTx = 0;
 
-    final BlockAccessListManager blockAccessListFactory =
-        protocolSpec.getBlockAccessListFactory().get();
-    final BlockAccessListBuilder blockAccessListBuilder =
-        blockAccessListFactory.newBlockAccessListBuilder();
+    final Optional<BlockAccessListManager> blockAccessListFactory =
+        protocolSpec.getBlockAccessListFactory();
+    final Optional<BlockAccessListBuilder> blockAccessListBuilder =
+        blockAccessListFactory.map(f -> f.newBlockAccessListBuilder());
 
     for (int i = 0; i < transactions.size(); i++) {
       final Transaction transaction = transactions.get(i);
@@ -212,6 +212,8 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       }
       final WorldUpdater blockUpdater = worldState.updater();
 
+      final Optional<TransactionAccessList> transactionAccessList =
+          createAccessList(blockAccessListFactory, i);
       TransactionProcessingResult transactionProcessingResult =
           getTransactionProcessingResult(
               preProcessingContext,
@@ -221,11 +223,13 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
               miningBeneficiary,
               transaction,
               i,
-              blockHashLookup);
+              blockHashLookup,
+              transactionAccessList);
 
       transactionProcessingResult
           .getTransactionLevelAccessList()
-          .ifPresent(blockAccessListBuilder::addTransactionLevelAccessList);
+          .ifPresent(
+              t -> blockAccessListBuilder.ifPresent(b -> b.addTransactionLevelAccessList(t)));
 
       if (transactionProcessingResult.isInvalid()) {
         String errorMessage =
@@ -352,7 +356,8 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       return new BlockProcessingResult(Optional.empty(), e);
     }
 
-    BlockAccessList blockAccessList = blockAccessListBuilder.build();
+    Optional<BlockAccessList> blockAccessList =
+        blockAccessListBuilder.map(BlockAccessList.BlockAccessListBuilder::build);
 
     return new BlockProcessingResult(
         Optional.of(
@@ -369,8 +374,8 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final Address miningBeneficiary,
       final Transaction transaction,
       final int location,
-      final BlockHashLookup blockHashLookup) {
-    final TransactionAccessList transactionAccessList = new TransactionAccessList(location);
+      final BlockHashLookup blockHashLookup,
+      final Optional<TransactionAccessList> transactionAccessList) {
     return transactionProcessor.processTransaction(
         blockUpdater,
         blockProcessingContext.getBlockHeader(),
@@ -380,7 +385,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         blockHashLookup,
         TransactionValidationParams.processingBlock(),
         blobGasPrice,
-        Optional.of(transactionAccessList));
+        transactionAccessList);
   }
 
   @SuppressWarnings(
@@ -400,6 +405,11 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
     }
 
     return true;
+  }
+
+  private Optional<TransactionAccessList> createAccessList(
+      final Optional<BlockAccessListManager> blockAccessListFactory, final int i) {
+    return blockAccessListFactory.map(f -> f.newTransactionAccessList(i));
   }
 
   protected MiningBeneficiaryCalculator getMiningBeneficiaryCalculator() {
