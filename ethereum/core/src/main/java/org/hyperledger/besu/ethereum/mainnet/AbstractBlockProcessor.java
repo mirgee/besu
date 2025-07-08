@@ -34,6 +34,7 @@ import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor.Preprocessin
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListManager;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.TransactionAccessList;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessingContext;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
@@ -369,6 +370,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final Transaction transaction,
       final int location,
       final BlockHashLookup blockHashLookup) {
+    final TransactionAccessList transactionAccessList = new TransactionAccessList(location);
     return transactionProcessor.processTransaction(
         blockUpdater,
         blockProcessingContext.getBlockHeader(),
@@ -377,7 +379,8 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         blockProcessingContext.getOperationTracer(),
         blockHashLookup,
         TransactionValidationParams.processingBlock(),
-        blobGasPrice);
+        blobGasPrice,
+        Optional.of(transactionAccessList));
   }
 
   @SuppressWarnings(
