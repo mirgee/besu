@@ -21,8 +21,10 @@ import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListEncoder;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.TransactionAccessList.AccountAccessList;
 import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 import org.hyperledger.besu.evm.account.Account;
+import org.hyperledger.besu.evm.worldstate.AbstractWorldUpdater;
 import org.hyperledger.besu.evm.worldstate.StackedUpdater;
 import org.hyperledger.besu.evm.worldstate.UpdateTrackingAccount;
+import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -136,7 +138,7 @@ public class BlockAccessList {
     final Map<Address, AccountBuilder> accountChangesBuilders = new HashMap<>();
 
     public void addTransactionLevelAccessList(
-        final TransactionAccessList txList, final StackedUpdater<?, ?> updater) {
+        final TransactionAccessList txList, final WorldUpdater updater) {
       for (Map.Entry<Address, AccountAccessList> accountAccessListEntry :
           txList.getAccounts().entrySet()) {
         final Address address = accountAccessListEntry.getKey();
@@ -153,7 +155,7 @@ public class BlockAccessList {
                 });
 
         if (updater.getDeletedAccountAddresses().contains(address)
-            || updater.getUpdatedAccounts().stream()
+            || updater.getTouchedAccounts().stream()
                 .map(s -> s.getAddress())
                 .filter(a -> a.equals(address))
                 .findAny()

@@ -230,14 +230,12 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
               blockHashLookup,
               transactionAccessList);
 
-      if (transactionUpdater instanceof StackedUpdater<?, ?> stackedUpdater) {
-        transactionProcessingResult
-            .getTransactionAccessList()
-            .ifPresent(
-                t ->
-                    blockAccessListBuilder.ifPresent(
-                        b -> b.addTransactionLevelAccessList(t, stackedUpdater)));
-      }
+      transactionProcessingResult
+          .getTransactionAccessList()
+          .ifPresent(
+              t ->
+                  blockAccessListBuilder.ifPresent(
+                      b -> b.addTransactionLevelAccessList(t, transactionUpdater)));
 
       if (transactionProcessingResult.isInvalid()) {
         String errorMessage =

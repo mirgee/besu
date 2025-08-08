@@ -329,12 +329,11 @@ public class BlockSimulator {
           transactionSimulatorResult.orElseThrow(
               () -> new BlockStateCallException("Transaction simulator result is empty"));
 
-      if (includeBlockAccessList
-          && transactionUpdater instanceof StackedUpdater<?, ?> stackedUpdater) {
+      if (includeBlockAccessList) {
         transactionSimulationResult
             .result()
             .getTransactionAccessList()
-            .ifPresent(t -> balBuilder.addTransactionLevelAccessList(t, stackedUpdater));
+            .ifPresent(t -> balBuilder.addTransactionLevelAccessList(t, transactionUpdater));
       }
 
       if (transactionSimulationResult.isInvalid()) {
