@@ -32,9 +32,10 @@ public class BonsaiCachedWorldStorageManager extends PathBasedCachedWorldStorage
   public BonsaiCachedWorldStorageManager(
       final BonsaiWorldStateProvider archive,
       final PathBasedWorldStateKeyValueStorage worldStateKeyValueStorage,
+      final EvmConfiguration evmConfiguration,
       final WorldStateConfig worldStateConfig,
       final CodeCache codeCache) {
-    super(archive, worldStateKeyValueStorage, worldStateConfig);
+    super(archive, worldStateKeyValueStorage, evmConfiguration, worldStateConfig);
 
     this.codeCache = codeCache;
   }

@@ -76,6 +76,19 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
   public PathBasedCachedWorldStorageManager(
       final PathBasedWorldStateProvider archive,
       final PathBasedWorldStateKeyValueStorage worldStateKeyValueStorage,
+      final EvmConfiguration evmConfiguration,
+      final WorldStateConfig worldStateConfig) {
+    this(
+        archive,
+        worldStateKeyValueStorage,
+        new ConcurrentHashMap<>(),
+        evmConfiguration,
+        worldStateConfig);
+  }
+
+  public PathBasedCachedWorldStorageManager(
+      final PathBasedWorldStateProvider archive,
+      final PathBasedWorldStateKeyValueStorage worldStateKeyValueStorage,
       final WorldStateConfig worldStateConfig) {
     this(
         archive,
