@@ -196,11 +196,16 @@ public class TraceBlock extends AbstractBlockParameterMethod {
     public WorldUpdater getNextUpdater() {
       // if we have no prior updater, it must be the first TX, so use the block's initial state
       if (updater == null) {
+        System.out.println("getNextUpdater >> creating new");
         updater = worldState.updater();
       } else {
+        System.out.println("getNextUpdater >> marking transaction boundary");
         updater.markTransactionBoundary();
       }
       updater = updater.updater();
+      System.out.println(
+          "getNextUpdater >> touchedAccounts "
+              + updater.getTouchedAccounts().stream().map(a -> a.getAddress()).toList());
       return updater;
     }
   }

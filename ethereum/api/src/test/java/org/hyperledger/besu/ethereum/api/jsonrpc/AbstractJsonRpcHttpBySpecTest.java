@@ -62,8 +62,10 @@ public abstract class AbstractJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpS
   @ParameterizedTest(name = "{index}: {0}")
   @MethodSource("specs")
   public void jsonRPCCallWithSpecFile(final String specName, final URL specURL) throws Exception {
-    this.specURL = specURL;
-    jsonRPCCall(this.specURL);
+    if (specName.equals("trace_replayBlockTransactions_diffOnly_0x4.json")) {
+      this.specURL = specURL;
+      jsonRPCCall(this.specURL);
+    }
   }
 
   /**

@@ -96,6 +96,7 @@ public class ExecuteTransactionStep implements Function<TransactionTrace, Transa
                       .orElse(BlobGas.ZERO));
       final BlockHashLookup blockHashLookup =
           protocolSpec.getPreExecutionProcessor().createBlockHashLookup(blockchain, header);
+      System.out.println("Processing transaction");
       result =
           transactionProcessor.processTransaction(
               chainUpdater.getNextUpdater(),

@@ -40,9 +40,7 @@ public class TraceJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpBySpecTest {
 
   public static Object[][] specs() {
     return AbstractJsonRpcHttpBySpecTest.findSpecFiles(
-        new String[] {
-          "trace/specs/replay-trace-transaction/statediff"
-        });
+        new String[] {"trace/specs/replay-trace-transaction/statediff"});
   }
 
   @Test

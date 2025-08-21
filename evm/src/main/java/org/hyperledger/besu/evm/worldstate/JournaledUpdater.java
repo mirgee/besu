@@ -71,6 +71,13 @@ public class JournaledUpdater<W extends WorldView> implements WorldUpdater {
           "WorldUpdater must be a JournaledWorldUpdater or an AbstractWorldUpdater");
     }
     undoMark = accounts.mark();
+    System.out.println(
+        "JournaledUpdater::constructor touched "
+            + touched.stream()
+                .filter(addr -> !deleted.contains(addr))
+                .map(accounts::get)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(() -> new ArrayList<>(touched.size()))));
   }
 
   @Override
@@ -95,6 +102,9 @@ public class JournaledUpdater<W extends WorldView> implements WorldUpdater {
     accounts.undo(undoMark);
     deleted.undo(undoMark);
     touched.clear();
+    System.out.println(
+        "JournaledUpdater::reset "
+            + getTouchedAccounts().stream().map(a -> a.getAddress()).toList());
   }
 
   @Override
@@ -106,6 +116,9 @@ public class JournaledUpdater<W extends WorldView> implements WorldUpdater {
   public void commit() {
     if (parentWorld instanceof JournaledUpdater<?> jw) {
       jw.touched.addAll(this.touched);
+      System.out.println(
+          "JournaledUpdater::commit "
+              + getTouchedAccounts().stream().map(a -> a.getAddress()).toList());
       return;
     }
 
@@ -120,6 +133,9 @@ public class JournaledUpdater<W extends WorldView> implements WorldUpdater {
       a.commit();
     }
     deleted.forEach(parentWorld::deleteAccount);
+    System.out.println(
+        "JournaledUpdater::commit "
+            + getTouchedAccounts().stream().map(a -> a.getAddress()).toList());
   }
 
   @Override
@@ -131,6 +147,9 @@ public class JournaledUpdater<W extends WorldView> implements WorldUpdater {
   @Override
   public void markTransactionBoundary() {
     accounts.values().forEach(JournaledAccount::markTransactionBoundary);
+    System.out.println(
+        "JournaledUpdater::markTransactionBoundary "
+            + getTouchedAccounts().stream().map(a -> a.getAddress()).toList());
   }
 
   @Override

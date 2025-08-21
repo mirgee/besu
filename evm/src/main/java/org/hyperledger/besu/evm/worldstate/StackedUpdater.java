@@ -39,6 +39,9 @@ public class StackedUpdater<W extends WorldView, A extends Account>
   public StackedUpdater(
       final AbstractWorldUpdater<W, A> world, final EvmConfiguration evmConfiguration) {
     super(world, evmConfiguration);
+    System.out.println(
+        "StackedUpdater::constructor touched "
+            + getTouchedAccounts().stream().map(a -> a.getAddress()).toList());
   }
 
   @Override
@@ -73,6 +76,9 @@ public class StackedUpdater<W extends WorldView, A extends Account>
   public void revert() {
     getDeletedAccounts().clear();
     getUpdatedAccounts().clear();
+    System.out.println(
+        "StackedUpdater::revert touched "
+            + getTouchedAccounts().stream().map(a -> a.getAddress()).toList());
   }
 
   @Override
@@ -109,11 +115,18 @@ public class StackedUpdater<W extends WorldView, A extends Account>
       }
       update.getUpdatedStorage().forEach(existing::setStorageValue);
     }
+
+    System.out.println(
+        "StackedUpdater::commit >> touched "
+            + getTouchedAccounts().stream().map(a -> a.getAddress()).toList());
   }
 
   /** Mark transaction boundary. */
   @Override
   public void markTransactionBoundary() {
     getUpdatedAccounts().forEach(UpdateTrackingAccount::markTransactionBoundary);
+    System.out.println(
+        "StackedUpdater::markTransactionBoundary >> touched "
+            + getTouchedAccounts().stream().map(a -> a.getAddress()).toList());
   }
 }

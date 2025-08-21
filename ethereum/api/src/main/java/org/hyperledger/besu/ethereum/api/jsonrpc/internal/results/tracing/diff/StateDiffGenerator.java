@@ -49,6 +49,13 @@ public class StateDiffGenerator {
     // Either the initial block state or the state of the prior TX
     final WorldUpdater previousUpdater = transactionUpdater.parentUpdater().get();
 
+    System.out.println(
+        "transactionUpdater touchedAccounts "
+            + transactionUpdater.getTouchedAccounts().stream().map(a -> a.getAddress()).toList());
+    System.out.println(
+        "previousUpdater touchedAccounts "
+            + previousUpdater.getTouchedAccounts().stream().map(a -> a.getAddress()).toList());
+
     final StateDiffTrace stateDiffResult = new StateDiffTrace();
 
     for (final Account updatedAccount : transactionUpdater.getTouchedAccounts()) {
