@@ -50,10 +50,10 @@ public class StateDiffGenerator {
     final WorldUpdater previousUpdater = transactionUpdater.parentUpdater().get();
 
     System.out.println(
-        "transactionUpdater touchedAccounts "
+        "transactionUpdater " + transactionUpdater.hashCode() + " touchedAccounts "
             + transactionUpdater.getTouchedAccounts().stream().map(a -> a.getAddress()).toList());
     System.out.println(
-        "previousUpdater touchedAccounts "
+        "previousUpdater " + previousUpdater.hashCode() +" touchedAccounts "
             + previousUpdater.getTouchedAccounts().stream().map(a -> a.getAddress()).toList());
 
     final StateDiffTrace stateDiffResult = new StateDiffTrace();

@@ -117,8 +117,8 @@ public class JournaledUpdater<W extends WorldView> implements WorldUpdater {
     if (parentWorld instanceof JournaledUpdater<?> jw) {
       jw.touched.addAll(this.touched);
       System.out.println(
-          "JournaledUpdater::commit "
-              + getTouchedAccounts().stream().map(a -> a.getAddress()).toList());
+          "JournaledUpdater::commit hashcode " + this.hashCode() + " touched " +
+              getTouchedAccounts().stream().map(a -> a.getAddress()).toList());
       return;
     }
 
@@ -134,8 +134,8 @@ public class JournaledUpdater<W extends WorldView> implements WorldUpdater {
     }
     deleted.forEach(parentWorld::deleteAccount);
     System.out.println(
-        "JournaledUpdater::commit "
-            + getTouchedAccounts().stream().map(a -> a.getAddress()).toList());
+        "JournaledUpdater::commit hashcode " + this.hashCode() + " touched " +
+            getTouchedAccounts().stream().map(a -> a.getAddress()).toList());
   }
 
   @Override
@@ -148,8 +148,8 @@ public class JournaledUpdater<W extends WorldView> implements WorldUpdater {
   public void markTransactionBoundary() {
     accounts.values().forEach(JournaledAccount::markTransactionBoundary);
     System.out.println(
-        "JournaledUpdater::markTransactionBoundary "
-            + getTouchedAccounts().stream().map(a -> a.getAddress()).toList());
+        "JournaledUpdater::markTransactionBoundary hashcode " + this.hashCode() + " touched " +
+            getTouchedAccounts().stream().map(a -> a.getAddress()).toList());
   }
 
   @Override
@@ -212,6 +212,8 @@ public class JournaledUpdater<W extends WorldView> implements WorldUpdater {
 
   @Override
   public WorldUpdater updater() {
-    return new JournaledUpdater<>(this, evmConfiguration);
+    var res = new JournaledUpdater<>(this, evmConfiguration);
+    System.out.println("JournaledUpdater::updater hashCodeParent " + this.hashCode() + " hashCodeChild " + res.hashCode());
+    return res;
   }
 }
