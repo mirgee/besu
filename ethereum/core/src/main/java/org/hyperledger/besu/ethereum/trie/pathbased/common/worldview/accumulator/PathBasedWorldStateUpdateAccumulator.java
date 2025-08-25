@@ -301,6 +301,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
 
   @Override
   protected ACCOUNT getForMutation(final Address address) {
+    System.out.println("PathBasedWorldStateUpdateAccumulator::getForMutation >> address " + address);
     return loadAccount(address, PathBasedValue::getUpdated);
   }
 
@@ -318,11 +319,13 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
           account = wrappedWorldView().get(address);
         }
         if (account instanceof PathBasedAccount pathBasedAccount) {
+          System.out.println("PathBasedWorldStateUpdateAccumulator::loadAccount >> Updating accounts to update with address " + address);
           ACCOUNT mutableAccount = copyAccount((ACCOUNT) pathBasedAccount, this, true);
           accountsToUpdate.put(
               address, new PathBasedValue<>((ACCOUNT) pathBasedAccount, mutableAccount));
           return mutableAccount;
         } else {
+          System.out.println("PathBasedWorldStateUpdateAccumulator::loadAccount >> Updating accounts to update with null value at address " + address);
           // add the empty read in accountsToUpdate
           accountsToUpdate.put(address, new PathBasedValue<>(null, null));
           return null;
@@ -349,6 +352,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
 
   @Override
   public void commit() {
+    System.out.println("PathBasedWorldStateUpdateAccumulator::commit");
     this.isAccumulatorStateChanged = true;
 
     for (final Address deletedAddress : getDeletedAccounts()) {

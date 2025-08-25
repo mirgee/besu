@@ -117,7 +117,7 @@ public class StackedUpdater<W extends WorldView, A extends Account>
     }
 
     System.out.println(
-        "StackedUpdater::commit >> touched "
+        "StackedUpdater::commit >> hashCode " + this.hashCode() + " touched "
             + getTouchedAccounts().stream().map(a -> a.getAddress()).toList());
   }
 
@@ -126,7 +126,7 @@ public class StackedUpdater<W extends WorldView, A extends Account>
   public void markTransactionBoundary() {
     getUpdatedAccounts().forEach(UpdateTrackingAccount::markTransactionBoundary);
     System.out.println(
-        "StackedUpdater::markTransactionBoundary >> touched "
+        "StackedUpdater::markTransactionBoundary >> hashcode " + this.hashCode() + " touched "
             + getTouchedAccounts().stream().map(a -> a.getAddress()).toList());
   }
 }

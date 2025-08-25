@@ -35,6 +35,23 @@ import org.apache.tuweni.units.bigints.UInt256;
 
 public class StateDiffGenerator {
 
+  private static String dumpChain(final WorldUpdater wu) {
+    final var sb = new StringBuilder();
+    WorldUpdater worldUpdater = wu;
+    int i = 0;
+    while (worldUpdater != null) {
+      sb.append("#").append(i).append(" ")
+        .append(worldUpdater.getClass().getSimpleName())
+        .append("@").append(System.identityHashCode(worldUpdater))
+        .append(" touched=")
+        .append(worldUpdater.getTouchedAccounts().stream().map(a -> a.getAddress()).toList())
+        .append("\n");
+      worldUpdater = worldUpdater.parentUpdater().orElse(null);
+      i++;
+    }
+    return sb.toString();
+  }
+
   public Stream<Trace> generateStateDiff(final TransactionTrace transactionTrace) {
     final List<TraceFrame> traceFrames = transactionTrace.getTraceFrames();
     if (traceFrames.isEmpty()) {
@@ -55,6 +72,7 @@ public class StateDiffGenerator {
     System.out.println(
         "previousUpdater " + previousUpdater.hashCode() +" touchedAccounts "
             + previousUpdater.getTouchedAccounts().stream().map(a -> a.getAddress()).toList());
+    System.out.println("FRAME CHAIN:\n" + dumpChain(traceFrames.get(0).getWorldUpdater()));
 
     final StateDiffTrace stateDiffResult = new StateDiffTrace();
 

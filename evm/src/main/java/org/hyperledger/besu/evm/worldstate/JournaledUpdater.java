@@ -122,20 +122,24 @@ public class JournaledUpdater<W extends WorldView> implements WorldUpdater {
       return;
     }
 
-    for (final JournaledAccount a : accounts.values()) {
-      final Address addr = a.getAddress();
-      if (deleted.contains(addr)) {
-        continue;
+    if (parentWorld instanceof AbstractWorldUpdater<?, ?> awu) {
+      for (final JournaledAccount a : accounts.values()) {
+        final Address addr = a.getAddress();
+        if (deleted.contains(addr) || !touched.contains(addr)) {
+          continue;
+        }
+        if (a.getWrappedAccount() == null) {
+          a.setWrappedAccount(awu.createAccount(addr, a.getNonce(), a.getBalance()));
+        }
+        a.commit();
       }
-      if (a.getWrappedAccount() == null) {
-        a.setWrappedAccount(rootWorld.createAccount(addr, a.getNonce(), a.getBalance()));
-      }
-      a.commit();
+      deleted.forEach(parentWorld::deleteAccount);
+      System.out.println(
+          "JournaledUpdater::commit hashcode " + this.hashCode() + " touched " +
+              getTouchedAccounts().stream().map(a -> a.getAddress()).toList());
     }
-    deleted.forEach(parentWorld::deleteAccount);
-    System.out.println(
-        "JournaledUpdater::commit hashcode " + this.hashCode() + " touched " +
-            getTouchedAccounts().stream().map(a -> a.getAddress()).toList());
+
+    System.out.println("SHOULDN'T HAPPEN");
   }
 
   @Override
@@ -165,6 +169,7 @@ public class JournaledUpdater<W extends WorldView> implements WorldUpdater {
 
   @Override
   public MutableAccount getAccount(final Address address) {
+    System.out.println("JournaledUpdater::getAccount >> hashCode " + this.hashCode() + " address " + address);
     if (deleted.contains(address)) {
       return null;
     }
