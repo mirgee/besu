@@ -169,7 +169,6 @@ public class JournaledUpdater<W extends WorldView> implements WorldUpdater {
 
   @Override
   public MutableAccount getAccount(final Address address) {
-    System.out.println("JournaledUpdater::getAccount >> hashCode " + this.hashCode() + " address " + address);
     if (deleted.contains(address)) {
       return null;
     }

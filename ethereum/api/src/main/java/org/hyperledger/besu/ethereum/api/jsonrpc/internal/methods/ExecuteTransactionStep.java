@@ -97,15 +97,20 @@ public class ExecuteTransactionStep implements Function<TransactionTrace, Transa
       final BlockHashLookup blockHashLookup =
           protocolSpec.getPreExecutionProcessor().createBlockHashLookup(blockchain, header);
       System.out.println("Processing transaction");
+      var nextUpdater = chainUpdater.getNextUpdater();
+      System.out.println("Next updater touched before transaction " + nextUpdater.getTouchedAccounts().stream().map(a -> a.getAddress()).toList());
+      System.out.println("Next updater parent touched before transaction " + nextUpdater.parentUpdater().map(u -> u.getTouchedAccounts().stream().map(a -> a.getAddress()).toList()));
       result =
           transactionProcessor.processTransaction(
-              chainUpdater.getNextUpdater(),
+              nextUpdater,
               header,
               transactionTrace.getTransaction(),
               header.getCoinbase(),
               tracer,
               blockHashLookup,
               blobGasPrice);
+      System.out.println("Next updater touched after transaction " + nextUpdater.getTouchedAccounts().stream().map(a -> a.getAddress()).toList());
+      System.out.println("Next updater parent touched after transaction " + nextUpdater.parentUpdater().map(u -> u.getTouchedAccounts().stream().map(a -> a.getAddress()).toList()));
 
       traceFrames = tracer.copyTraceFrames();
       tracer.reset();

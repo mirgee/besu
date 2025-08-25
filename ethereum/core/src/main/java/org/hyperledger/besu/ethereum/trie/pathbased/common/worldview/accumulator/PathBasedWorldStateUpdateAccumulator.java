@@ -91,6 +91,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
   }
 
   public void cloneFromUpdater(final PathBasedWorldStateUpdateAccumulator<ACCOUNT> source) {
+    System.out.println("PathBasedWorldStateUpdateAccumulator::cloneFromUpdater >> ");
     accountsToUpdate.putAll(source.getAccountsToUpdate());
     codeToUpdate.putAll(source.codeToUpdate);
     storageToClear.addAll(source.storageToClear);
@@ -314,18 +315,20 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
         if (wrappedWorldView() instanceof PathBasedWorldStateUpdateAccumulator) {
           final PathBasedWorldStateUpdateAccumulator<ACCOUNT> worldStateUpdateAccumulator =
               (PathBasedWorldStateUpdateAccumulator<ACCOUNT>) wrappedWorldView();
+          System.out.println("PathBasedWorldStateUpdateAccumulator::loadAccount >> @" + this.hashCode() + " loading account from wrapped PWSUA with address " + address);
           account = worldStateUpdateAccumulator.loadAccount(address, accountFunction);
         } else {
+          System.out.println("PathBasedWorldStateUpdateAccumulator::loadAccount >> @" + this.hashCode() + " loading account from wrapped non-PWSUA with address " + address);
           account = wrappedWorldView().get(address);
         }
         if (account instanceof PathBasedAccount pathBasedAccount) {
-          System.out.println("PathBasedWorldStateUpdateAccumulator::loadAccount >> Updating accounts to update with address " + address);
+          System.out.println("PathBasedWorldStateUpdateAccumulator::loadAccount >> @" + this.hashCode() + " Updating accounts to update @" + accountsToUpdate.hashCode() + " with address " + address);
           ACCOUNT mutableAccount = copyAccount((ACCOUNT) pathBasedAccount, this, true);
           accountsToUpdate.put(
               address, new PathBasedValue<>((ACCOUNT) pathBasedAccount, mutableAccount));
           return mutableAccount;
         } else {
-          System.out.println("PathBasedWorldStateUpdateAccumulator::loadAccount >> Updating accounts to update with null value at address " + address);
+          System.out.println("PathBasedWorldStateUpdateAccumulator::loadAccount >> @" + this.hashCode() + " Updating accounts to update @" + accountsToUpdate.hashCode() + " with null value at address " + address);
           // add the empty read in accountsToUpdate
           accountsToUpdate.put(address, new PathBasedValue<>(null, null));
           return null;
@@ -620,6 +623,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
    */
   @Override
   public void markTransactionBoundary() {
+    System.out.println("PathBasedWorldStateUpdateAccumulator::markTransactionBoundary >>>");
     getUpdatedAccounts().clear();
     getDeletedAccounts().clear();
   }
@@ -896,6 +900,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
    */
   @Override
   public void revert() {
+    System.out.println("PathBasedWorldStateUpdateAccumulator::revert >>");
     super.reset();
   }
 
@@ -909,6 +914,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
    */
   @Override
   public void reset() {
+    System.out.println("PathBasedWorldStateUpdateAccumulator::reset >>");
     storageToClear.clear();
     storageToUpdate.clear();
     codeToUpdate.clear();

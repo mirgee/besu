@@ -180,6 +180,7 @@ public class MainnetTransactionProcessor {
       final TransactionValidationParams transactionValidationParams,
       final Wei blobGasPrice) {
     try {
+      System.out.println("WorldState parent before transaction processing " + worldState.parentUpdater().map(uu -> uu.getTouchedAccounts().stream().map(a -> a.getAddress()).toList()));
       final var transactionValidator = transactionValidatorFactory.get();
       LOG.trace("Starting execution of {}", transaction);
       ValidationResult<TransactionInvalidReason> validationResult =
@@ -197,7 +198,9 @@ public class MainnetTransactionProcessor {
       }
 
       final Address senderAddress = transaction.getSender();
+      System.out.println("WorldState parent before creating sender account " + worldState.parentUpdater().map(uu -> uu.getTouchedAccounts().stream().map(a -> a.getAddress()).toList()));
       final MutableAccount sender = worldState.getOrCreateSenderAccount(senderAddress);
+      System.out.println("WorldState parent after creating sender account " + worldState.parentUpdater().map(uu -> uu.getTouchedAccounts().stream().map(a -> a.getAddress()).toList()));
 
       validationResult =
           transactionValidator.validateForSender(transaction, sender, transactionValidationParams);
@@ -206,7 +209,9 @@ public class MainnetTransactionProcessor {
         return TransactionProcessingResult.invalid(validationResult);
       }
 
+      System.out.println("WorldState parent before tracePrepareTransaction " + worldState.parentUpdater().map(uu -> uu.getTouchedAccounts().stream().map(a -> a.getAddress()).toList()));
       operationTracer.tracePrepareTransaction(worldState, transaction);
+      System.out.println("WorldState parent after tracePrepareTransaction " + worldState.parentUpdater().map(uu -> uu.getTouchedAccounts().stream().map(a -> a.getAddress()).toList()));
 
       final Set<Address> warmAddressList = new BytesTrieSet<>(Address.SIZE);
 
@@ -245,7 +250,9 @@ public class MainnetTransactionProcessor {
             gasCalculator.calculateDelegateCodeGasRefund(
                 (codeDelegationResult.alreadyExistingDelegators()));
 
+        System.out.println("WorldState parent before code delegation commit " + worldState.parentUpdater().map(uu -> uu.getTouchedAccounts().stream().map(a -> a.getAddress()).toList()));
         worldState.commit();
+        System.out.println("WorldState parent after code delegation commit " + worldState.parentUpdater().map(uu -> uu.getTouchedAccounts().stream().map(a -> a.getAddress()).toList()));
       }
 
       final List<AccessListEntry> accessListEntries = transaction.getAccessList().orElse(List.of());
@@ -279,7 +286,9 @@ public class MainnetTransactionProcessor {
           transaction.getGasLimit(),
           intrinsicGas);
 
+      System.out.println("WorldState parent before creation of nested updater " + worldState.parentUpdater().map(uu -> uu.getTouchedAccounts().stream().map(a -> a.getAddress()).toList()));
       final WorldUpdater worldUpdater = worldState.updater();
+      System.out.println("World updater parent parent after creation " + worldUpdater.parentUpdater().flatMap(u -> u.parentUpdater().map(uu -> uu.getTouchedAccounts().stream().map(a -> a.getAddress()).toList())));
 
       operationTracer.traceStartTransaction(worldUpdater, transaction);
 
@@ -342,7 +351,9 @@ public class MainnetTransactionProcessor {
 
       if (initialFrame.getCode().isValid()) {
         while (!messageFrameStack.isEmpty()) {
+          System.out.println("WorldState parent before tx processing " + worldState.parentUpdater().map(uu -> uu.getTouchedAccounts().stream().map(a -> a.getAddress()).toList()));
           process(messageFrameStack.peekFirst(), operationTracer);
+          System.out.println("WorldState parent after tx processing " + worldState.parentUpdater().map(uu -> uu.getTouchedAccounts().stream().map(a -> a.getAddress()).toList()));
         }
       } else {
         initialFrame.setState(MessageFrame.State.EXCEPTIONAL_HALT);
@@ -354,7 +365,9 @@ public class MainnetTransactionProcessor {
       }
 
       if (initialFrame.getState() == MessageFrame.State.COMPLETED_SUCCESS) {
+        System.out.println("World updater parent parent before commit " + worldUpdater.parentUpdater().flatMap(u -> u.parentUpdater().map(uu -> uu.getTouchedAccounts().stream().map(a -> a.getAddress()).toList())));
         worldUpdater.commit();
+        System.out.println("World updater parent parent after commit " + worldUpdater.parentUpdater().flatMap(u -> u.parentUpdater().map(uu -> uu.getTouchedAccounts().stream().map(a -> a.getAddress()).toList())));
       } else {
         if (initialFrame.getExceptionalHaltReason().isPresent()
             && initialFrame.getCode().isValid()) {

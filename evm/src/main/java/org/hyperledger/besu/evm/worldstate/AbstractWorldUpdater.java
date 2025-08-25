@@ -105,7 +105,7 @@ public abstract class AbstractWorldUpdater<W extends WorldView, A extends Accoun
 
   @Override
   public MutableAccount getAccount(final Address address) {
-    System.out.println("AbstractWorldUpdater::getAccount >> address " + address);
+    System.out.println("AbstractWorldUpdater::getAccount >> @" + this.hashCode() + " address " + address);
     // We may have updated it already, so check that first.
     final MutableAccount existing = updatedAccounts.get(address);
     if (existing != null) {
@@ -126,6 +126,7 @@ public abstract class AbstractWorldUpdater<W extends WorldView, A extends Accoun
 
   @Override
   public void deleteAccount(final Address address) {
+    System.out.println("AbstractWorldUpdater::deleteAccount >> address " + address);
     deletedAccounts.add(address);
     updatedAccounts.remove(address);
   }
@@ -186,6 +187,7 @@ public abstract class AbstractWorldUpdater<W extends WorldView, A extends Accoun
 
   /** Reset. */
   protected void reset() {
+    System.out.println("AbstractWorldUpdater::reset >>");
     updatedAccounts.clear();
     deletedAccounts.clear();
   }
