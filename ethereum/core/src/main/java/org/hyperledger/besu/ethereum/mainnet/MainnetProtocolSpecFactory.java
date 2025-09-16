@@ -259,14 +259,14 @@ public class MainnetProtocolSpecFactory {
 
   public ProtocolSpecBuilder amsterdamDefinition(final GenesisConfigOptions genesisConfigOptions) {
     return MainnetProtocolSpecs.amsterdamDefinition(
-            chainId,
-            isRevertReasonEnabled,
-            genesisConfigOptions,
-            evmConfiguration,
-            miningConfiguration,
-            isParallelTxProcessingEnabled,
-            isBlockAccessListEnabled,
-            metricsSystem);
+        chainId,
+        isRevertReasonEnabled,
+        genesisConfigOptions,
+        evmConfiguration,
+        miningConfiguration,
+        isParallelTxProcessingEnabled,
+        isBlockAccessListEnabled,
+        metricsSystem);
   }
 
   public ProtocolSpecBuilder bpo1Definition(final GenesisConfigOptions genesisConfigOptions) {

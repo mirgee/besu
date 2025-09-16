@@ -989,14 +989,14 @@ public abstract class MainnetProtocolSpecs {
   }
 
   static ProtocolSpecBuilder amsterdamDefinition(
-          final Optional<BigInteger> chainId,
-          final boolean enableRevertReason,
-          final GenesisConfigOptions genesisConfigOptions,
-          final EvmConfiguration evmConfiguration,
-          final MiningConfiguration miningConfiguration,
-          final boolean isParallelTxProcessingEnabled,
-          final boolean isBlockAccessListEnabled,
-          final MetricsSystem metricsSystem) {
+      final Optional<BigInteger> chainId,
+      final boolean enableRevertReason,
+      final GenesisConfigOptions genesisConfigOptions,
+      final EvmConfiguration evmConfiguration,
+      final MiningConfiguration miningConfiguration,
+      final boolean isParallelTxProcessingEnabled,
+      final boolean isBlockAccessListEnabled,
+      final MetricsSystem metricsSystem) {
     return osakaDefinition(
             chainId,
             enableRevertReason,
@@ -1006,8 +1006,8 @@ public abstract class MainnetProtocolSpecs {
             isParallelTxProcessingEnabled,
             isBlockAccessListEnabled,
             metricsSystem)
-            .blockAccessListFactory(new BlockAccessListFactory(isBlockAccessListEnabled, true))
-            .hardforkId(AMSTERDAM);
+        .blockAccessListFactory(new BlockAccessListFactory(isBlockAccessListEnabled, true))
+        .hardforkId(AMSTERDAM);
   }
 
   static ProtocolSpecBuilder bpo1Definition(
