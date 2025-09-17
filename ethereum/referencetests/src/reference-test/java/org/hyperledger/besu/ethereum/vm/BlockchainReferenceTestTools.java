@@ -139,7 +139,6 @@ public class BlockchainReferenceTestTools {
         final BlockImportResult importResult =
             blockImporter.importBlock(context, block, validationMode, validationMode);
 
-        System.out.println("Expected BAL " + candidateBlock.getBlockAccessList());
         assertThat(importResult.isImported()).isEqualTo(candidateBlock.isValid());
       } catch (final RLPException e) {
         assertThat(candidateBlock.isValid()).isFalse();
