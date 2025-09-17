@@ -149,7 +149,6 @@ public class BlockchainReferenceTestCaseSpec {
     return sealEngine;
   }
 
-  @SuppressWarnings("unused")
   public static class ReferenceTestBlockHeader extends BlockHeader {
 
     @JsonCreator
@@ -241,7 +240,6 @@ public class BlockchainReferenceTestCaseSpec {
 
     private final Boolean valid;
     private final List<TransactionSequence> transactionSequence;
-    private final Object blockAccessList;
 
     @JsonCreator
     public CandidateBlock(
@@ -271,17 +269,13 @@ public class BlockchainReferenceTestCaseSpec {
           && withdrawals == null) {
         blockValid = false;
       }
+
       this.valid = blockValid;
       this.transactionSequence = transactionSequence;
-      this.blockAccessList = blockAccessList;
     }
 
     public boolean isValid() {
       return valid;
-    }
-
-    public Object getBlockAccessList() {
-      return blockAccessList;
     }
 
     public boolean areAllTransactionsValid() {
