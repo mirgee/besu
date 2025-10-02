@@ -10,7 +10,7 @@ on:
       - performance
 
 env:
-  GRADLE_OPTS: "-Xmx6g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=true -Dorg.gradle.caching=true"
+  GRADLE_OPTS: "-Xmx12g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=true -Dorg.gradle.caching=true"
   total-runners: 4
 
 concurrency:
