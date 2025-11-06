@@ -344,6 +344,8 @@ public class ProtocolSpecBuilder {
     checkNotNull(blobSchedule, "Missing blob schedule");
     checkNotNull(slotDuration, "Missing slot duration");
 
+    LOGGER.info("Blob schedule active at startup: " + blobSchedule.toString());
+
     final FeeMarket feeMarket = feeMarketBuilder.apply(blobSchedule);
     final GasCalculator gasCalculator = gasCalculatorBuilder.get();
     final GasLimitCalculator gasLimitCalculator =
