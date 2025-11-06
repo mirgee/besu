@@ -409,6 +409,18 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                   String.format(
                       "Block access list hash mismatch, calculated: %s header: %s",
                       expectedHash.toHexString(), headerBalHash.get().toHexString());
+
+              final String expectedBalStr = bal.toString();
+              final String actualBalStr =
+                  blockBody.getBlockAccessList()
+                      .map(Object::toString)
+                      .orElse("<no BAL present in block body>");
+
+              LOG.error(
+                  "{}\n--- BAL constructed from execution ---\n{}\n"
+                      + "--- BAL from block body ---\n{}",
+                  errorMessage, expectedBalStr, actualBalStr);
+
               LOG.error(errorMessage);
               if (worldState instanceof BonsaiWorldState) {
                 ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
