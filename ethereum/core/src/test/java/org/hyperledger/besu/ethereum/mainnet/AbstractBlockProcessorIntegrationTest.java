@@ -340,6 +340,8 @@ class AbstractBlockProcessorIntegrationTest {
     assertTrue(sequentialResult.isSuccessful());
     assertBalComputesHeaderRoot(block, sequentialResult);
 
+    System.out.println("testProcessBlockZeroReward: " + sequentialResult.getYield().get().getBlockAccessList().get());
+
     BlockProcessingResult parallelResult =
         blockProcessor.processBlock(
             protocolContext,
@@ -419,6 +421,8 @@ class AbstractBlockProcessorIntegrationTest {
     BlockProcessingResult blockProcessingResult =
         blockProcessor.processBlock(protocolContext, blockchain, worldState, blockWithTransactions);
 
+    System.out.println("processSimpleTransfers: " + blockProcessingResult.getYield().get().getBlockAccessList().get());
+
     BonsaiAccount updatedSenderAccount1 =
         (BonsaiAccount) worldState.get(transactionTransfer1.getSender());
     BonsaiAccount updatedSenderAccount2 =
@@ -481,6 +485,8 @@ class AbstractBlockProcessorIntegrationTest {
 
     BlockProcessingResult blockProcessingResult =
         blockProcessor.processBlock(protocolContext, blockchain, worldState, blockWithTransactions);
+
+    System.out.println("processConflictedSimpleTransfersSameSender: " + blockProcessingResult.getYield().get().getBlockAccessList().get());
 
     BonsaiAccount updatedSenderAccount =
         (BonsaiAccount) worldState.get(transferTransaction1.getSender());
@@ -554,6 +560,8 @@ class AbstractBlockProcessorIntegrationTest {
 
     BlockProcessingResult blockProcessingResult =
         blockProcessor.processBlock(protocolContext, blockchain, worldState, blockWithTransactions);
+
+    System.out.println("processConflictedSimpleTransfersSameAddressReceiverAndSender: " + blockProcessingResult.getYield().get().getBlockAccessList().get());
 
     BonsaiAccount updatedSenderAccount1 =
         (BonsaiAccount) worldState.get(transferTransaction1.getSender());
@@ -634,6 +642,8 @@ class AbstractBlockProcessorIntegrationTest {
     BlockProcessingResult blockProcessingResult =
         blockProcessor.processBlock(protocolContext, blockchain, worldState, blockWithTransactions);
 
+    System.out.println("processConflictedSimpleTransfersWithCoinbase: " + blockProcessingResult.getYield().get().getBlockAccessList().get());
+
     BonsaiAccount updatedSenderAccount1 =
         (BonsaiAccount) worldState.get(transferTransaction1.getSender());
 
@@ -704,6 +714,8 @@ class AbstractBlockProcessorIntegrationTest {
     BlockProcessingResult blockProcessingResult =
         blockProcessor.processBlock(protocolContext, blockchain, worldState, blockWithTransactions);
 
+    System.out.println("processContractSlotUpdateThenReadTx: " + blockProcessingResult.getYield().get().getBlockAccessList().get());
+
     assertTrue(blockProcessingResult.isSuccessful());
 
     // Verify the state
@@ -764,6 +776,8 @@ class AbstractBlockProcessorIntegrationTest {
 
     BlockProcessingResult blockProcessingResult =
         blockProcessor.processBlock(protocolContext, blockchain, worldState, blockWithTransactions);
+
+    System.out.println("processSlotReadThenUpdateTx: " + blockProcessingResult.getYield().get().getBlockAccessList().get());
 
     assertTrue(blockProcessingResult.isSuccessful());
 
@@ -832,6 +846,8 @@ class AbstractBlockProcessorIntegrationTest {
 
     BlockProcessingResult blockProcessingResult =
         blockProcessor.processBlock(protocolContext, blockchain, worldState, blockWithTransactions);
+
+    System.out.println("processAccountReadThenUpdateTx: " + blockProcessingResult.getYield().get().getBlockAccessList().get());
 
     assertTrue(blockProcessingResult.isSuccessful());
 
@@ -903,6 +919,8 @@ class AbstractBlockProcessorIntegrationTest {
         blockProcessor.processBlock(protocolContext, blockchain, worldState, blockWithTransactions);
     assertTrue(blockProcessingResult.isSuccessful());
 
+    System.out.println("processAccountUpdateThenReadTx: " + blockProcessingResult.getYield().get().getBlockAccessList().get());
+
     // Verify the state
     BonsaiAccount contractAccount = (BonsaiAccount) worldState.get(contractAddress);
     BonsaiAccount updatedAccount0x2 =
@@ -969,6 +987,8 @@ class AbstractBlockProcessorIntegrationTest {
 
     BlockProcessingResult blockProcessingResult =
         blockProcessor.processBlock(protocolContext, blockchain, worldState, blockWithTransactions);
+
+    System.out.println("processAccountReadThenUpdateTxWithTwoAccounts: " + blockProcessingResult.getYield().get().getBlockAccessList().get());
 
     assertTrue(blockProcessingResult.isSuccessful());
 
@@ -1039,6 +1059,8 @@ class AbstractBlockProcessorIntegrationTest {
 
     BlockProcessingResult blockProcessingResult =
         blockProcessor.processBlock(protocolContext, blockchain, worldState, blockWithTransactions);
+
+    System.out.println("processAccountUpdateThenReadTxWithTwoAccounts: " + blockProcessingResult.getYield().get().getBlockAccessList().get());
 
     assertTrue(blockProcessingResult.isSuccessful());
 
