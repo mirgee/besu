@@ -70,6 +70,10 @@ import org.web3j.abi.datatypes.generated.Uint256;
 @SuppressWarnings("rawtypes")
 class AbstractBlockProcessorIntegrationTest {
 
+  private static final String DEPOSIT_CONTRACT_ADDRESS = "0x0000f90827f1c53a10cb7a02335b175320002935";
+  private static final String WITHDRAWAL_CONTRACT_ADDRESS = "0x00000961ef480eb55e80d19ad83579a64c007002";
+  private static final String CONSOLIDATION_REQUEST_CONTRACT_ADDRESS = "0x0000bbddc7ce488642fb579f8b00f3a590007251";
+
   private static final String ACCOUNT_GENESIS_1 = "0x627306090abab3a6e1400e9345bc60c78a8bef57";
   private static final String ACCOUNT_GENESIS_2 = "0x7f2d653f56ea8de6ffa554c7a0cd4e03af79f3eb";
 
@@ -213,7 +217,7 @@ class AbstractBlockProcessorIntegrationTest {
     MutableWorldState worldState = worldStateArchive.getWorldState();
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x208233dfcdccdb3d90195c35db976564cc817db44576152e6a919d78333abec2",
+            "0x1b4590abbfccc5fbabeb4616c7d5e4df5c2d97623cdb5cdd5e7e2faf1113c25f",
             Wei.of(5),
             transactionTransfer1,
             transactionTransfer2);
@@ -247,7 +251,7 @@ class AbstractBlockProcessorIntegrationTest {
     MutableWorldState worldState = worldStateArchive.getWorldState();
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x3853fb24fc30252a1d15986b0c7bce7e70ab29fc025736950e6dba8d7b7dcc33",
+            "0x475d2e8324963ca0c58832d8c3aa686792b5552eae21cf87f9d75b9e7b83de1a",
             Wei.of(5),
             setSlot1Transaction,
             getSlot1Transaction,
@@ -310,7 +314,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block block =
         createBlockWithTransactions(
-            "0x35e44a46c149a9e765b88f310a1376e07cefc2001bf142e147f8ce8ecb60a70d",
+            "0x96bb834413450d6837def84df8309acc046fd43ed1ff39ea35a0bb2416d3d874",
             Wei.ZERO,
             transactions);
 
@@ -331,6 +335,11 @@ class AbstractBlockProcessorIntegrationTest {
             protocolSchedule,
             BalConfiguration.DEFAULT);
 
+    BlockProcessingResult sequentialResult =
+        blockProcessor.processBlock(protocolContext, blockchain, worldStateSequential, block);
+    assertTrue(sequentialResult.isSuccessful());
+    assertBalComputesHeaderRoot(block, sequentialResult);
+
     BlockProcessingResult parallelResult =
         blockProcessor.processBlock(
             protocolContext,
@@ -339,14 +348,7 @@ class AbstractBlockProcessorIntegrationTest {
             block,
             new ParallelTransactionPreprocessing(
                 transactionProcessor, Runnable::run, BalConfiguration.DEFAULT));
-
-    BlockProcessingResult sequentialResult =
-        blockProcessor.processBlock(protocolContext, blockchain, worldStateSequential, block);
-
-    assertTrue(sequentialResult.isSuccessful());
     assertTrue(parallelResult.isSuccessful());
-
-    assertBalComputesHeaderRoot(block, sequentialResult);
     assertBalComputesHeaderRoot(block, parallelResult);
 
     assertThat(worldStateSequential.rootHash()).isEqualTo(worldStateParallel.rootHash());
@@ -354,6 +356,9 @@ class AbstractBlockProcessorIntegrationTest {
     assertBlockAccessListAddresses(
         sequentialResult,
         coinbase,
+        Address.fromHexStringStrict(DEPOSIT_CONTRACT_ADDRESS),
+        Address.fromHexStringStrict(WITHDRAWAL_CONTRACT_ADDRESS),
+        Address.fromHexStringStrict(CONSOLIDATION_REQUEST_CONTRACT_ADDRESS),
         Address.fromHexStringStrict(ACCOUNT_2),
         Address.fromHexStringStrict(ACCOUNT_3),
         Address.fromHexStringStrict(ACCOUNT_GENESIS_1),
@@ -373,6 +378,9 @@ class AbstractBlockProcessorIntegrationTest {
     assertBlockAccessListAddresses(
         parallelResult,
         coinbase,
+        Address.fromHexStringStrict(DEPOSIT_CONTRACT_ADDRESS),
+        Address.fromHexStringStrict(WITHDRAWAL_CONTRACT_ADDRESS),
+        Address.fromHexStringStrict(CONSOLIDATION_REQUEST_CONTRACT_ADDRESS),
         Address.fromHexStringStrict(ACCOUNT_2),
         Address.fromHexStringStrict(ACCOUNT_3),
         Address.fromHexStringStrict(ACCOUNT_GENESIS_1),
@@ -403,7 +411,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x4ca6e755674a1df696e5365361a0c352422934ba3ad0a74c9e6b0b56e4f80b4c",
+            "0x6b8f969b6912f464469f5f3e447ca43ad8025ca8edaf166bebdf5528abac99e8",
             Wei.of(5),
             transactionTransfer1,
             transactionTransfer2);
@@ -429,6 +437,9 @@ class AbstractBlockProcessorIntegrationTest {
 
     assertBlockAccessListAddresses(
         blockProcessingResult,
+        Address.fromHexStringStrict(DEPOSIT_CONTRACT_ADDRESS),
+        Address.fromHexStringStrict(WITHDRAWAL_CONTRACT_ADDRESS),
+        Address.fromHexStringStrict(CONSOLIDATION_REQUEST_CONTRACT_ADDRESS),
         Address.fromHexStringStrict(ACCOUNT_2),
         Address.fromHexStringStrict(ACCOUNT_3),
         Address.fromHexStringStrict(ACCOUNT_GENESIS_1),
@@ -462,7 +473,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x7420935ee980cb06060f119ee3ee3dcd5a96989985938a3b3ca096558ad61484",
+            "0x1bafc12a22b3d23102f77cf1ffde422059f065c7bc0f93ed8a929024767aa855",
             Wei.of(5),
             transferTransaction1,
             transferTransaction2,
@@ -490,6 +501,9 @@ class AbstractBlockProcessorIntegrationTest {
 
     assertBlockAccessListAddresses(
         blockProcessingResult,
+        Address.fromHexStringStrict(DEPOSIT_CONTRACT_ADDRESS),
+        Address.fromHexStringStrict(WITHDRAWAL_CONTRACT_ADDRESS),
+        Address.fromHexStringStrict(CONSOLIDATION_REQUEST_CONTRACT_ADDRESS),
         Address.fromHexStringStrict(ACCOUNT_4),
         Address.fromHexStringStrict(ACCOUNT_5),
         Address.fromHexStringStrict(ACCOUNT_6),
@@ -533,7 +547,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x5c0158e79b66c86cf5e5256390b95add0c2e6891c24e72d71b9dbea5845fea72",
+            "0x8b3d10162c15cc73c20432a8e60afdd20c55b516ad3c37324dbee4c8c64c667b",
             Wei.of(5),
             transferTransaction1,
             transferTransaction2);
@@ -567,6 +581,9 @@ class AbstractBlockProcessorIntegrationTest {
 
     assertBlockAccessListAddresses(
         blockProcessingResult,
+        Address.fromHexStringStrict(DEPOSIT_CONTRACT_ADDRESS),
+        Address.fromHexStringStrict(WITHDRAWAL_CONTRACT_ADDRESS),
+        Address.fromHexStringStrict(CONSOLIDATION_REQUEST_CONTRACT_ADDRESS),
         Address.fromHexStringStrict(ACCOUNT_2),
         Address.fromHexStringStrict(ACCOUNT_GENESIS_1),
         Address.fromHexStringStrict(ACCOUNT_GENESIS_2),
@@ -609,7 +626,7 @@ class AbstractBlockProcessorIntegrationTest {
         (BonsaiAccount) worldState.get(transferTransaction1.getSender());
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0xd9544f389692face27352d23494dd1446d9af025067bc11b29e0eb83e258676a",
+            "0x76d4c07a1037e62312ef45c7eb310540721287f5ca5b4c4f5e0f549e36332531",
             Wei.of(5),
             transferTransaction1,
             transferTransaction2);
@@ -638,6 +655,9 @@ class AbstractBlockProcessorIntegrationTest {
 
     assertBlockAccessListAddresses(
         blockProcessingResult,
+        Address.fromHexStringStrict(DEPOSIT_CONTRACT_ADDRESS),
+        Address.fromHexStringStrict(WITHDRAWAL_CONTRACT_ADDRESS),
+        Address.fromHexStringStrict(CONSOLIDATION_REQUEST_CONTRACT_ADDRESS),
         Address.fromHexStringStrict(ACCOUNT_2),
         Address.fromHexStringStrict(ACCOUNT_GENESIS_1),
         Address.fromHexStringStrict(ACCOUNT_GENESIS_2),
@@ -673,7 +693,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x51d59f64426ea986b1323aa22b9881c83f67947b4f90c2c302b21d3f8c459aff",
+            "0x2f059b1492346ad0d21249e029b1bc6927896113dd175ab15af63157cea5844a",
             Wei.of(5),
             setSlot1Transaction,
             getSlot1Transaction,
@@ -693,6 +713,9 @@ class AbstractBlockProcessorIntegrationTest {
 
     assertBlockAccessListAddresses(
         blockProcessingResult,
+        Address.fromHexStringStrict(DEPOSIT_CONTRACT_ADDRESS),
+        Address.fromHexStringStrict(WITHDRAWAL_CONTRACT_ADDRESS),
+        Address.fromHexStringStrict(CONSOLIDATION_REQUEST_CONTRACT_ADDRESS),
         Address.fromHexStringStrict(CONTRACT_ADDRESS),
         Address.fromHexStringStrict(ACCOUNT_GENESIS_1),
         Address.fromHexStringStrict(ACCOUNT_GENESIS_2),
@@ -731,7 +754,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0xdf21d4fef211d7a905022dc87f2a68f4bf9cb273fcf9745cfa7f7c2f258c03f3",
+            "0x3c5636d349342633c1e5796ad1301ee050a60a583951e83bed53976f532c1791",
             Wei.of(5),
             getSlot1Transaction,
             setSlot1Transaction,
@@ -751,6 +774,9 @@ class AbstractBlockProcessorIntegrationTest {
 
     assertBlockAccessListAddresses(
         blockProcessingResult,
+        Address.fromHexStringStrict(DEPOSIT_CONTRACT_ADDRESS),
+        Address.fromHexStringStrict(WITHDRAWAL_CONTRACT_ADDRESS),
+        Address.fromHexStringStrict(CONSOLIDATION_REQUEST_CONTRACT_ADDRESS),
         Address.fromHexStringStrict(CONTRACT_ADDRESS),
         Address.fromHexStringStrict(ACCOUNT_GENESIS_1),
         Address.fromHexStringStrict(ACCOUNT_GENESIS_2),
@@ -797,7 +823,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x91966cdde619acb05a1d9fef2f8801432a30edde7131f1f194002b0a766026c7",
+            "0xdf945edb0af523391bd52e949046f1a6c474de89398f840305344ea4665ddd39",
             Wei.of(5),
             transactionTransfer,
             getcontractBalanceTransaction,
@@ -818,6 +844,9 @@ class AbstractBlockProcessorIntegrationTest {
 
     assertBlockAccessListAddresses(
         blockProcessingResult,
+        Address.fromHexStringStrict(DEPOSIT_CONTRACT_ADDRESS),
+        Address.fromHexStringStrict(WITHDRAWAL_CONTRACT_ADDRESS),
+        Address.fromHexStringStrict(CONSOLIDATION_REQUEST_CONTRACT_ADDRESS),
         Address.fromHexStringStrict(CONTRACT_ADDRESS),
         Address.fromHexStringStrict(ACCOUNT_2),
         Address.fromHexStringStrict(ACCOUNT_GENESIS_1),
@@ -863,7 +892,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x375af730c0f9e04666659fc419fda74cc0cb29936607c08adf21d3b236c6b7f6",
+            "0xb36e4734b2d9233e169cbf5f9a74ee0701762b7fc2f6776f4e0c349970c7c98e",
             Wei.of(5),
             transactionTransfer,
             sendEthFromContractTransaction,
@@ -884,6 +913,9 @@ class AbstractBlockProcessorIntegrationTest {
 
     assertBlockAccessListAddresses(
         blockProcessingResult,
+        Address.fromHexStringStrict(DEPOSIT_CONTRACT_ADDRESS),
+        Address.fromHexStringStrict(WITHDRAWAL_CONTRACT_ADDRESS),
+        Address.fromHexStringStrict(CONSOLIDATION_REQUEST_CONTRACT_ADDRESS),
         Address.fromHexStringStrict(CONTRACT_ADDRESS),
         Address.fromHexStringStrict(ACCOUNT_2),
         Address.fromHexStringStrict(ACCOUNT_GENESIS_1),
@@ -928,7 +960,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x3c2366a28dadbcef39ba04cde7bc30a5dccfce1e478a5c2602f5a28ab9498e6c",
+            "0xe8dca8d45a21f6955b6960b5f673f00a32b0d4b5712a58bb905a6ea7ec37dc74",
             Wei.of(5),
             transactionTransfer,
             getcontractBalanceTransaction,
@@ -949,6 +981,9 @@ class AbstractBlockProcessorIntegrationTest {
 
     assertBlockAccessListAddresses(
         blockProcessingResult,
+        Address.fromHexStringStrict(DEPOSIT_CONTRACT_ADDRESS),
+        Address.fromHexStringStrict(WITHDRAWAL_CONTRACT_ADDRESS),
+        Address.fromHexStringStrict(CONSOLIDATION_REQUEST_CONTRACT_ADDRESS),
         Address.fromHexStringStrict(ACCOUNT_2),
         Address.fromHexStringStrict(ACCOUNT_3),
         Address.fromHexStringStrict(CONTRACT_ADDRESS),
@@ -995,7 +1030,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x3c2366a28dadbcef39ba04cde7bc30a5dccfce1e478a5c2602f5a28ab9498e6c",
+            "0xe8dca8d45a21f6955b6960b5f673f00a32b0d4b5712a58bb905a6ea7ec37dc74",
             Wei.of(5),
             transactionTransfer,
             sendEthFromContractTransaction,
@@ -1016,6 +1051,9 @@ class AbstractBlockProcessorIntegrationTest {
 
     assertBlockAccessListAddresses(
         blockProcessingResult,
+        Address.fromHexStringStrict(DEPOSIT_CONTRACT_ADDRESS),
+        Address.fromHexStringStrict(WITHDRAWAL_CONTRACT_ADDRESS),
+        Address.fromHexStringStrict(CONSOLIDATION_REQUEST_CONTRACT_ADDRESS),
         Address.fromHexStringStrict(ACCOUNT_2),
         Address.fromHexStringStrict(ACCOUNT_3),
         Address.fromHexStringStrict(CONTRACT_ADDRESS),
