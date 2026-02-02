@@ -152,6 +152,7 @@ import org.hyperledger.besu.metrics.MetricCategoryRegistryImpl;
 import org.hyperledger.besu.metrics.MetricsProtocol;
 import org.hyperledger.besu.metrics.ObservableMetricsSystem;
 import org.hyperledger.besu.metrics.StandardMetricCategory;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
 import org.hyperledger.besu.metrics.vertx.VertxMetricsAdapterFactory;
 import org.hyperledger.besu.nat.NatMethod;
@@ -2083,7 +2084,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .miningParameters(miningParametersSupplier.get())
             .transactionPoolConfiguration(buildTransactionPoolConfiguration())
             .nodeKey(new NodeKey(securityModule()))
-            .metricsSystem((ObservableMetricsSystem) besuComponent.getMetricsSystem())
+            .metricsSystem((ObservableMetricsSystem) getMetricsSystem())
             .messagePermissioningProviders(permissioningService.getMessagePermissioningProviders())
             .clock(Clock.systemUTC())
             .isRevertReasonEnabled(isRevertReasonEnabled)
@@ -2388,7 +2389,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .pidPath(pidPath)
             .dataDir(dataDir())
             .bannedNodeIds(p2PDiscoveryConfig.bannedNodeIds())
-            .metricsSystem((ObservableMetricsSystem) besuComponent.getMetricsSystem())
+            .metricsSystem((ObservableMetricsSystem) getMetricsSystem())
             .permissioningService(permissioningService)
             .metricsConfiguration(metricsConfiguration)
             .staticNodes(staticNodes)
@@ -2556,7 +2557,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
    * @return Instance of MetricsSystem
    */
   public MetricsSystem getMetricsSystem() {
-    return besuComponent.getMetricsSystem();
+    final MetricsSystem metricsSystem = besuComponent.getMetricsSystem();
+    return metricsSystem == null ? new NoOpMetricsSystem() : metricsSystem;
   }
 
   private Set<EnodeURL> loadStaticNodes() throws IOException {
