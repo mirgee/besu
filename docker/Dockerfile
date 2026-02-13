@@ -12,7 +12,12 @@ ENV NO_PROXY_CACHE="-o Acquire::BrokenProxy=true -o Acquire::http::No-Cache=true
 RUN apt-get update $NO_PROXY_CACHE  && \
   # $NO_PROXY_CACHE must not be used here or otherwise will trigger a hadolint error
   apt-get -o Acquire::BrokenProxy=true -o Acquire::http::No-Cache=true -o Acquire::http::Pipeline-Depth=0 \
-    --no-install-recommends -q --assume-yes install libjemalloc-dev=5.* && \
+    --no-install-recommends -q --assume-yes install \
+    libjemalloc-dev=5.* \
+    liburing2 \
+    libevent-2.1-7t64 \
+    libgoogle-glog0v6t64 \
+    libgflags2.2 && \
   # Clean apt cache
   apt-get clean  && \
   rm -rf /var/cache/apt/archives/* /var/cache/apt/archives/partial/*  && \
@@ -22,6 +27,16 @@ RUN apt-get update $NO_PROXY_CACHE  && \
   # Ensure we use a stable UID for besu, as file permissions are tied to UIDs.
   useradd --uid 1000 --create-home --home-dir /opt/besu --shell /bin/bash --user-group --skel /etc/skel besu && \
   chmod 0755 /opt/besu
+
+RUN set -eux; \
+  for d in /lib/*-linux-gnu /usr/lib/*-linux-gnu; do \
+    if [ -e "$d/libglog.so.0.6.0" ]; then \
+      ln -sf "$d/libglog.so.0.6.0" "$d/libglog.so.0"; \
+      ldconfig; \
+      exit 0; \
+    fi; \
+  done; \
+  echo "glog not found"; exit 1
 
 # Copy JRE from the java-base stage
 COPY --from=java-base /opt/java/openjdk /opt/java/openjdk
