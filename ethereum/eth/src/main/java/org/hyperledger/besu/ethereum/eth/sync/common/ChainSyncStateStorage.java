@@ -78,6 +78,9 @@ public class ChainSyncStateStorage {
           return null;
         }
 
+        // Read first pivot block header
+        final BlockHeader firstPivotBlockHeader = headerReader.apply(input);
+
         // Read pivot block header
         final BlockHeader pivotBlockHeader = headerReader.apply(input);
 
@@ -96,7 +99,8 @@ public class ChainSyncStateStorage {
         input.leaveList();
 
         LOG.debug(
-            "Loaded chain sync state: pivot={}, checkpoint={}, headers anchor={}, header download complete={}",
+            "Loaded chain sync state: firstPivot={}, pivot={}, checkpoint={}, headers anchor={}, header download complete={}",
+            firstPivotBlockHeader.getNumber(),
             pivotBlockHeader.getNumber(),
             checkpointBlockHeader.getNumber(),
             headerDownloadAnchor == null
@@ -105,7 +109,11 @@ public class ChainSyncStateStorage {
             headersDownloadComplete);
 
         return new ChainSyncState(
-            pivotBlockHeader, checkpointBlockHeader, headerDownloadAnchor, headersDownloadComplete);
+            firstPivotBlockHeader,
+            pivotBlockHeader,
+            checkpointBlockHeader,
+            headerDownloadAnchor,
+            headersDownloadComplete);
 
       } catch (final IOException e) {
         throw new IllegalStateException(
@@ -135,6 +143,9 @@ public class ChainSyncStateStorage {
         output.writeByte(FORMAT_VERSION);
 
         // Write pivot block header
+        state.firstPivotBlockHeader().writeTo(output);
+
+        // Write pivot block header
         state.pivotBlockHeader().writeTo(output);
 
         // Write the checkpoint block header
@@ -161,7 +172,8 @@ public class ChainSyncStateStorage {
             StandardCopyOption.REPLACE_EXISTING);
 
         LOG.debug(
-            "Stored chain sync state: pivot={}, checkpoint block={}, headers complete={}",
+            "Stored chain sync state: firstPivot={}, pivot={}, checkpoint block={}, headers complete={}",
+            state.firstPivotBlockHeader().getNumber(),
             state.pivotBlockHeader().getNumber(),
             state.blockDownloadAnchor().getNumber(),
             state.headersDownloadComplete());
