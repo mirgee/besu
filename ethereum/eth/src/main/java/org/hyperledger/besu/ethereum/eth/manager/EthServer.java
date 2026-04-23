@@ -46,6 +46,7 @@ import org.hyperledger.besu.ethereum.eth.messages.PaginatedReceiptsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.PooledTransactionsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.ReceiptsMessage;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
+import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
@@ -115,6 +116,7 @@ class EthServer {
                 maxMessageSize);
           }
           return constructGetReceiptsResponse(
+              peer,
               blockchain,
               messageData,
               ethereumWireProtocolConfiguration.getMaxGetReceipts(),
@@ -246,6 +248,7 @@ class EthServer {
   }
 
   static MessageData constructGetReceiptsResponse(
+      final EthPeer peer,
       final Blockchain blockchain,
       final MessageData message,
       final int requestLimit,
@@ -265,30 +268,71 @@ class EthServer {
       count++;
       final Optional<List<TransactionReceipt>> maybeReceipts = blockchain.getTxReceipts(blockHash);
       if (maybeReceipts.isEmpty()) {
+        logMissingGetReceiptsBlock(peer, blockHash);
         continue;
       }
+      final List<TransactionReceipt> blockReceipts = maybeReceipts.get();
       final BytesValueRLPOutput encodedReceipts = new BytesValueRLPOutput();
       encodedReceipts.startList();
       TransactionReceiptEncodingConfiguration encodingConfiguration =
           EthProtocol.isEth69Compatible(cap)
               ? TransactionReceiptEncodingConfiguration.ETH69_RECEIPT_CONFIGURATION
               : TransactionReceiptEncodingConfiguration.DEFAULT_NETWORK_CONFIGURATION;
-      maybeReceipts
-          .get()
-          .forEach(
-              r -> TransactionReceiptEncoder.writeTo(r, encodedReceipts, encodingConfiguration));
+      blockReceipts.forEach(
+          r -> TransactionReceiptEncoder.writeTo(r, encodedReceipts, encodingConfiguration));
       encodedReceipts.endList();
-      final int encodedSize = encodedReceipts.encodedSize();
+      final Bytes encodedReceiptList = encodedReceipts.encoded();
+      final int encodedSize = encodedReceiptList.size();
       if (responseSizeEstimate + encodedSize > maxMessageSize) {
         break;
       }
 
       responseSizeEstimate += encodedSize;
-      rlp.writeRaw(encodedReceipts.encoded());
+      rlp.writeRaw(encodedReceiptList);
+      logServedGetReceiptsBlock(
+          peer,
+          blockchain,
+          blockHash,
+          blockReceipts,
+          Hash.hash(encodedReceiptList).toString());
     }
     rlp.endList();
 
     return ReceiptsMessage.createUnsafe(rlp.encoded());
+  }
+
+  private static void logServedGetReceiptsBlock(
+      final EthPeer peer,
+      final Blockchain blockchain,
+      final Hash blockHash,
+      final List<TransactionReceipt> servedReceipts,
+      final String encodedReceiptListHash) {
+    final String headerReceiptsRoot =
+        blockchain
+            .getBlockHeader(blockHash)
+            .map(BlockHeader::getReceiptsRoot)
+            .map(Object::toString)
+            .orElse("<unknown>");
+    final int txCount =
+        blockchain.getBlockBody(blockHash).map(body -> body.getTransactions().size()).orElse(-1);
+    final Hash servedReceiptsRoot = BodyValidation.receiptsRoot(servedReceipts);
+
+    LOG.info(
+        "GetReceipts served block {} to peer {}: receiptsRoot={}, txCount={}, servedReceiptCount={}, derivedServedReceiptsRoot={}, encodedReceiptListKeccak={}",
+        blockHash,
+        peer.getLoggableId(),
+        headerReceiptsRoot,
+        txCount,
+        servedReceipts.size(),
+        servedReceiptsRoot,
+        encodedReceiptListHash);
+  }
+
+  private static void logMissingGetReceiptsBlock(final EthPeer peer, final Hash blockHash) {
+    LOG.info(
+        "GetReceipts served block {} to peer {}: missing local receipts, servedReceiptCount=0",
+        blockHash,
+        peer.getLoggableId());
   }
 
   static MessageData constructGetPaginatedReceiptsResponse(
@@ -327,6 +371,7 @@ class EthServer {
     for (final Hash blockHash : blockHashes) {
       final Optional<List<TransactionReceipt>> maybeReceipts = blockchain.getTxReceipts(blockHash);
       if (maybeReceipts.isEmpty()) {
+        logMissingGetReceiptsBlock(peer, blockHash);
         LOG.debug(
             "Invalid request from peer {}, block {} does not exists, returning", peer, blockHash);
         break;
@@ -354,6 +399,7 @@ class EthServer {
 
       final BytesValueRLPOutput encodedBlockReceipts = new BytesValueRLPOutput();
       encodedBlockReceipts.startList();
+      final List<TransactionReceipt> servedReceipts = new ArrayList<>(requestedReceipts.size());
 
       for (final TransactionReceipt receipt : requestedReceipts) {
         final BytesValueRLPOutput encodedReceipt = new BytesValueRLPOutput();
@@ -368,10 +414,18 @@ class EthServer {
         }
         responseSizeEstimate += encodedReceipt.encodedSize();
         encodedBlockReceipts.writeRaw(encodedReceipt.encoded());
+        servedReceipts.add(receipt);
       }
 
       encodedBlockReceipts.endList();
+      final Bytes encodedReceiptList = encodedBlockReceipts.encoded();
       blockReceiptsRLPs.add(encodedBlockReceipts);
+      logServedGetReceiptsBlock(
+          peer,
+          blockchain,
+          blockHash,
+          servedReceipts,
+          Hash.hash(encodedReceiptList).toString());
       if (lastBlockIncomplete) {
         break;
       }
@@ -384,6 +438,12 @@ class EthServer {
     rlp.endList();
 
     final Bytes encodedResponse = rlp.encoded();
+    LOG.info(
+        "GetReceipts paginated response to peer {}: lastBlockIncomplete={}, blockCount={}, totalBytes={}",
+        peer.getLoggableId(),
+        lastBlockIncomplete,
+        blockReceiptsRLPs.size(),
+        encodedResponse.size());
     LOG.trace(
         "Returning paginated receipts for {} blocks, with last block incomplete {}, enconded size {}",
         blockHashes.size(),

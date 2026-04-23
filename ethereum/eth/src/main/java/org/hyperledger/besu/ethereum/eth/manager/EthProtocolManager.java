@@ -25,6 +25,8 @@ import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.manager.exceptions.ProtocolViolationException;
 import org.hyperledger.besu.ethereum.eth.messages.EthProtocolMessages;
+import org.hyperledger.besu.ethereum.eth.messages.GetReceiptsMessage;
+import org.hyperledger.besu.ethereum.eth.messages.ReceiptsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.StatusMessage;
 import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
 import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidatorRunner;
@@ -308,10 +310,17 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
       if (EthProtocol.requestIdCompatible(code)) {
         final Map.Entry<BigInteger, MessageData> requestIdAndEthMessage =
             ethMessage.getData().unwrapMessageData();
+        logGetReceiptsRequest(
+            capability, ethPeer, requestIdAndEthMessage.getKey(), requestIdAndEthMessage.getValue());
         maybeResponseData =
             ethMessages
                 .dispatch(new EthMessage(ethPeer, requestIdAndEthMessage.getValue()), capability)
-                .map(responseData -> responseData.wrapMessageData(requestIdAndEthMessage.getKey()));
+                .map(
+                    responseData -> {
+                      logReceiptsResponsePrepared(
+                          capability, ethPeer, requestIdAndEthMessage.getKey(), responseData);
+                      return responseData.wrapMessageData(requestIdAndEthMessage.getKey());
+                    });
       } else {
         maybeResponseData = ethMessages.dispatch(ethMessage, capability);
       }
@@ -356,6 +365,64 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
             // Peer disconnected before we could respond - nothing to do
           }
         });
+  }
+
+  private void logGetReceiptsRequest(
+      final Capability capability,
+      final EthPeer ethPeer,
+      final BigInteger requestId,
+      final MessageData unwrappedMessage) {
+    if (unwrappedMessage.getCode() != EthProtocolMessages.GET_RECEIPTS) {
+      return;
+    }
+    try {
+      final List<Hash> hashes = GetReceiptsMessage.readFrom(unwrappedMessage).blockHashes();
+      LOG.info(
+          "{} GetReceipts request received from peer {}: requestId={}, hashCount={}, firstHash={}, lastHash={}",
+          capability,
+          ethPeer.getLoggableId(),
+          requestId,
+          hashes.size(),
+          hashes.isEmpty() ? "<none>" : hashes.get(0),
+          hashes.isEmpty() ? "<none>" : hashes.get(hashes.size() - 1));
+    } catch (final RuntimeException e) {
+      LOG.atDebug()
+          .setMessage(
+              "Skipping GetReceipts request logging due to parse failure: peer={}, requestId={}")
+          .addArgument(ethPeer::getLoggableId)
+          .addArgument(requestId)
+          .setCause(e)
+          .log();
+    }
+  }
+
+  private void logReceiptsResponsePrepared(
+      final Capability capability,
+      final EthPeer ethPeer,
+      final BigInteger requestId,
+      final MessageData responseData) {
+    if (responseData.getCode() != EthProtocolMessages.RECEIPTS) {
+      return;
+    }
+    try {
+      final int receiptListCount = ReceiptsMessage.readFrom(responseData).syncReceipts().size();
+      LOG.info(
+          "{} Receipts response prepared for peer {}: requestId={}, receiptListCount={}, totalBytes={}",
+          capability,
+          ethPeer.getLoggableId(),
+          requestId,
+          receiptListCount,
+          responseData.getSize());
+    } catch (final RuntimeException e) {
+      LOG.atDebug()
+          .setMessage(
+              "Skipping Receipts response logging due to parse failure: peer={}, requestId={}, totalBytes={}")
+          .addArgument(ethPeer::getLoggableId)
+          .addArgument(requestId)
+          .addArgument(responseData::getSize)
+          .setCause(e)
+          .log();
+    }
   }
 
   @Override

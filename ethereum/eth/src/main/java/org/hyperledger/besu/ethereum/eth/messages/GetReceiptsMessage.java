@@ -65,6 +65,10 @@ public class GetReceiptsMessage extends AbstractMessageData {
   }
 
   protected static List<Hash> parseBlockHashes(final RLPInput input) {
+    if (!input.nextIsList()) {
+      // eth/70 prepends firstBlockReceiptIndex before the hash list. Ignore it in this decoder.
+      input.readLongScalar();
+    }
     final List<Hash> hashes = new ArrayList<>(input.enterList());
     while (!input.isEndOfCurrentList()) {
       hashes.add(Hash.wrap(input.readBytes32()));
