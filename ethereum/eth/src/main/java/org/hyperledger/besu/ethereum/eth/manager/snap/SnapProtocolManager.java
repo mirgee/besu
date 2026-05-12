@@ -73,13 +73,11 @@ public class SnapProtocolManager implements ProtocolManager {
         snapConfig, snapMessages, worldStateStorageCoordinator, protocolContext, synchronizer);
   }
 
+  @SuppressWarnings("UnusedVariable")
   private List<Capability> calculateCapabilities(final ProtocolSchedule protocolSchedule) {
     final ImmutableList.Builder<Capability> capabilities = ImmutableList.builder();
     capabilities.add(SnapProtocol.SNAP1);
-    if (protocolSchedule.anyMatch(spec -> spec.spec().isBlockAccessListEnabled())) {
-      capabilities.add(SnapProtocol.SNAP2);
-    }
-
+    capabilities.add(SnapProtocol.SNAP2);
     return capabilities.build();
   }
 
