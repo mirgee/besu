@@ -30,35 +30,86 @@ import org.apache.tuweni.bytes.Bytes;
 public final class BlockAccessListsMessageData {
   private BlockAccessListsMessageData() {}
 
-  public static Bytes encode(final Iterable<Optional<BlockAccessList>> blockAccessLists) {
+  public static Bytes encodeAccessLists(
+      final Iterable<Optional<BlockAccessList>> blockAccessLists) {
     final BytesValueRLPOutput output = new BytesValueRLPOutput();
     output.startList();
-    // request-id is prepended before sending the message
-    output.startList();
     blockAccessLists.forEach(
-        maybeBlockAccessList -> {
-          if (maybeBlockAccessList.isPresent()) {
-            final BlockAccessList blockAccessList = maybeBlockAccessList.get();
-            if (blockAccessList.rawRlp().isPresent()) {
-              output.writeRaw(blockAccessList.rawRlp().get());
-            } else {
-              BlockAccessListEncoder.encode(blockAccessList, output);
-            }
-          } else {
-            output.writeBytes(Bytes.EMPTY);
-          }
-        });
-    output.endList();
+        maybeBlockAccessList -> writeBlockAccessList(output, maybeBlockAccessList));
     output.endList();
     return output.encoded();
   }
 
-  public static Iterable<Optional<BlockAccessList>> decode(
+  public static Bytes encodeSnapResponse(
+      final Iterable<Optional<BlockAccessList>> blockAccessLists) {
+    final BytesValueRLPOutput output = new BytesValueRLPOutput();
+    output.startList();
+    output.writeRaw(encodeAccessLists(blockAccessLists));
+    output.endList();
+    return output.encoded();
+  }
+
+  public static Iterable<Optional<BlockAccessList>> decode(final Bytes data) {
+    return decodeEntries(
+        data,
+        false,
+        false,
+        input -> {
+          if (input.nextIsNull()) {
+            input.skipNext();
+            return Optional.empty();
+          }
+          return Optional.of(BlockAccessListDecoder.decode(input.readAsRlp()));
+        });
+  }
+
+  public static Iterable<Optional<BlockAccessList>> decodeSnap(
       final Bytes data, final boolean withRequestId) {
+    return decodeEntries(
+        data,
+        withRequestId,
+        true,
+        input -> {
+          if (input.nextIsNull()) {
+            input.skipNext();
+            return Optional.empty();
+          }
+          return Optional.of(BlockAccessListDecoder.decode(input.readAsRlp()));
+        });
+  }
+
+  public static Iterable<Bytes> decodeRaw(final Bytes data) {
+    return decodeEntries(data, false, false, input -> input.readAsRlp().raw());
+  }
+
+  public static Iterable<Bytes> decodeSnapRaw(final Bytes data, final boolean withRequestId) {
+    return decodeEntries(data, withRequestId, true, input -> input.readAsRlp().raw());
+  }
+
+  private static void writeBlockAccessList(
+      final BytesValueRLPOutput output, final Optional<BlockAccessList> maybeBlockAccessList) {
+    if (maybeBlockAccessList.isPresent()) {
+      final BlockAccessList blockAccessList = maybeBlockAccessList.get();
+      if (blockAccessList.rawRlp().isPresent()) {
+        output.writeRaw(blockAccessList.rawRlp().get());
+      } else {
+        BlockAccessListEncoder.encode(blockAccessList, output);
+      }
+    } else {
+      output.writeBytes(Bytes.EMPTY);
+    }
+  }
+
+  private static <T> Iterable<T> decodeEntries(
+      final Bytes data,
+      final boolean withRequestId,
+      final boolean nested,
+      final EntryReader<T> entryReader) {
     return () ->
         new Iterator<>() {
           private final RLPInput input = new BytesValueRLPInput(data, false);
           private boolean initialized = false;
+          private boolean complete = false;
 
           private void ensureInitialized() {
             if (!initialized) {
@@ -66,63 +117,42 @@ public final class BlockAccessListsMessageData {
               if (withRequestId) {
                 input.skipNext();
               }
-              input.enterList();
+              if (nested) {
+                input.enterList();
+              }
               initialized = true;
             }
           }
 
           @Override
           public boolean hasNext() {
+            if (complete) {
+              return false;
+            }
             ensureInitialized();
-            return !input.isEndOfCurrentList();
+            if (!input.isEndOfCurrentList()) {
+              return true;
+            }
+            if (nested) {
+              input.leaveListLenient();
+            }
+            input.leaveListLenient();
+            complete = true;
+            return false;
           }
 
           @Override
-          public Optional<BlockAccessList> next() {
-            ensureInitialized();
+          public T next() {
             if (!hasNext()) {
               throw new NoSuchElementException();
             }
-            if (input.nextIsNull()) {
-              input.skipNext();
-              return Optional.empty();
-            }
-            return Optional.of(BlockAccessListDecoder.decode(input.readAsRlp()));
+            return entryReader.read(input);
           }
         };
   }
 
-  public static Iterable<Bytes> decodeRaw(final Bytes data, final boolean withRequestId) {
-    return () ->
-        new Iterator<>() {
-          private final RLPInput input = new BytesValueRLPInput(data, false);
-          private boolean initialized = false;
-
-          private void ensureInitialized() {
-            if (!initialized) {
-              input.enterList();
-              if (withRequestId) {
-                input.skipNext();
-              }
-              input.enterList();
-              initialized = true;
-            }
-          }
-
-          @Override
-          public boolean hasNext() {
-            ensureInitialized();
-            return !input.isEndOfCurrentList();
-          }
-
-          @Override
-          public Bytes next() {
-            ensureInitialized();
-            if (!hasNext()) {
-              throw new NoSuchElementException();
-            }
-            return input.readAsRlp().raw();
-          }
-        };
+  @FunctionalInterface
+  private interface EntryReader<T> {
+    T read(RLPInput input);
   }
 }
