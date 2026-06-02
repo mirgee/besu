@@ -27,6 +27,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -72,6 +73,46 @@ public class DynamicPivotBlockSelector {
   }
 
   public void check(final BiConsumer<BlockHeader, Boolean> onNewPivotBlock) {
+    checkForEligiblePivot(
+        (currentPivotBlockNumber, bestChainHeight) -> {
+          final long distance = bestChainHeight - currentPivotBlockNumber;
+          LOG.atDebug()
+              .setMessage(
+                  "Switch to new pivot: current pivot {} is distant {} from current best chain height {} last pivot block found {}")
+              .addArgument(currentPivotBlockNumber)
+              .addArgument(distance)
+              .addArgument(bestChainHeight)
+              .addArgument(this::logLastPivotBlockFound)
+              .log();
+          switchToNewPivotBlock(onNewPivotBlock);
+        });
+  }
+
+  /**
+   * Checks for a newer pivot candidate without mutating the active pivot state.
+   *
+   * <p>This is used by snap/2, where the world-state downloader must first drain in-flight range
+   * work and wait for chain-side BAL catch-up before changing the active pivot.
+   *
+   * @param onNewPivotCandidate callback invoked with a downloaded pivot header candidate
+   */
+  public void checkForNewPivotCandidate(final Consumer<BlockHeader> onNewPivotCandidate) {
+    checkForEligiblePivot(
+        (currentPivotBlockNumber, bestChainHeight) -> {
+          final long distance = bestChainHeight - currentPivotBlockNumber;
+          LOG.atDebug()
+              .setMessage(
+                  "Found new pivot candidate: current pivot {} is distant {} from current best chain height {} last pivot block found {}")
+              .addArgument(currentPivotBlockNumber)
+              .addArgument(distance)
+              .addArgument(bestChainHeight)
+              .addArgument(this::logLastPivotBlockFound)
+              .log();
+          notifyNewPivotCandidate(onNewPivotCandidate);
+        });
+  }
+
+  private void checkForEligiblePivot(final EligiblePivotHandler eligiblePivotHandler) {
     if (isTimeToCheckAgain.compareAndSet(true, false)) {
       AtomicBoolean delayNextCheck = new AtomicBoolean(false);
 
@@ -130,15 +171,8 @@ public class DynamicPivotBlockSelector {
                           () -> {
                             final long distance = bestChainHeight - currentPivotBlockNumber;
                             if (distance > pivotBlockWindowValidity) {
-                              LOG.atDebug()
-                                  .setMessage(
-                                      "Switch to new pivot: current pivot {} is distant {} from current best chain height {} last pivot block found {}")
-                                  .addArgument(currentPivotBlockNumber)
-                                  .addArgument(distance)
-                                  .addArgument(bestChainHeight)
-                                  .addArgument(this::logLastPivotBlockFound)
-                                  .log();
-                              switchToNewPivotBlock(onNewPivotBlock);
+                              eligiblePivotHandler.onEligiblePivot(
+                                  currentPivotBlockNumber, bestChainHeight);
                             }
                             // delay next check only if we are successful
                             delayNextCheck.set(true);
@@ -210,6 +244,21 @@ public class DynamicPivotBlockSelector {
           onSwitchDone.accept(blockHeader, true);
         },
         () -> onSwitchDone.accept(syncState.getPivotBlockHeader().orElseThrow(), false));
+  }
+
+  private void notifyNewPivotCandidate(final Consumer<BlockHeader> onNewPivotCandidate) {
+    lastPivotBlockFound.ifPresent(
+        blockHeader -> {
+          if (syncState.getPivotBlockHeader().filter(blockHeader::equals).isEmpty()) {
+            onNewPivotCandidate.accept(blockHeader);
+          }
+          lastPivotBlockFound = Optional.empty();
+        });
+  }
+
+  @FunctionalInterface
+  private interface EligiblePivotHandler {
+    void onEligiblePivot(final long currentPivotBlockNumber, final long bestChainHeight);
   }
 
   public boolean isBlockchainBehind() {

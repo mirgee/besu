@@ -84,6 +84,11 @@ public class InMemoryTaskQueue<T> implements TaskCollection<T> {
     return isEmpty() && unfinishedOutstandingTasks.size() == 0;
   }
 
+  public synchronized long outstandingTaskCount() {
+    assertNotClosed();
+    return unfinishedOutstandingTasks.size();
+  }
+
   @Override
   public synchronized void close() {
     closed.set(true);
