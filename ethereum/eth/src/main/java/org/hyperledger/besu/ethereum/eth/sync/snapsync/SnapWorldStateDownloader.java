@@ -22,7 +22,6 @@ import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncActions;
-import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.context.SnapSyncStatePersistenceManager;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.AccountRangeDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
@@ -66,8 +65,8 @@ public class SnapWorldStateDownloader implements WorldStateDownloader {
   private final int maxOutstandingRequests;
   private final int maxNodeRequestsWithoutProgress;
   private final ProtocolContext protocolContext;
-  private final ProtocolSchedule protocolSchedule;
   private final WorldStateStorageCoordinator worldStateStorageCoordinator;
+  private final ProtocolSchedule protocolSchedule;
 
   private final AtomicReference<SnapWorldDownloadState> downloadState = new AtomicReference<>();
   private final SyncDurationMetrics syncDurationMetrics;
@@ -135,7 +134,7 @@ public class SnapWorldStateDownloader implements WorldStateDownloader {
 
   @Override
   public CompletableFuture<Void> run(
-      final PivotSyncActions fastSyncActions, final PivotSyncState fastSyncState) {
+      final PivotSyncActions fastSyncActions, final SnapSyncProcessState fastSyncState) {
     synchronized (this) {
       final SnapWorldDownloadState oldDownloadState = this.downloadState.get();
       if (oldDownloadState != null && oldDownloadState.isDownloading()) {
@@ -146,7 +145,7 @@ public class SnapWorldStateDownloader implements WorldStateDownloader {
         return failed;
       }
 
-      final SnapSyncProcessState snapSyncState = (SnapSyncProcessState) fastSyncState;
+      final SnapSyncProcessState snapSyncState = fastSyncState;
       final BlockHeader header = fastSyncState.getPivotBlockHeader().get();
       final Hash stateRoot = header.getStateRoot();
       LOG.info(
@@ -172,6 +171,7 @@ public class SnapWorldStateDownloader implements WorldStateDownloader {
               clock,
               ethContext,
               syncDurationMetrics);
+      this.downloadState.set(newDownloadState);
 
       final Map<Bytes32, Bytes32> ranges = RangeManager.generateAllRanges(16);
       snapsyncMetricsManager.initRange(ranges);

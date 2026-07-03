@@ -20,8 +20,8 @@ import org.hyperledger.besu.ethereum.eth.manager.exceptions.MaxRetriesReachedExc
 import org.hyperledger.besu.ethereum.eth.manager.exceptions.NoAvailablePeersException;
 import org.hyperledger.besu.ethereum.eth.sync.ChainDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.TrailingPeerRequirements;
-import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncChainDownloader;
-import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapWorldStateDownloader;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncController;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.StalledDownloadException;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldStateDownloader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
@@ -45,7 +45,7 @@ import com.google.common.io.RecursiveDeleteOption;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class PivotSyncDownloader {
+public class PivotSyncDownloader implements SnapSyncController {
 
   private static final Duration FAST_SYNC_RETRY_DELAY = Duration.ofSeconds(5);
 
@@ -77,6 +77,7 @@ public class PivotSyncDownloader {
     this.syncDurationMetrics = syncDurationMetrics;
   }
 
+  @Override
   public CompletableFuture<PivotSyncState> start() {
     if (!running.compareAndSet(false, true)) {
       throw new IllegalStateException("SyncDownloader already running");
@@ -146,6 +147,7 @@ public class PivotSyncDownloader {
     }
   }
 
+  @Override
   public void stop() {
     synchronized (this) {
       if (running.compareAndSet(true, false)) {
@@ -156,6 +158,7 @@ public class PivotSyncDownloader {
     }
   }
 
+  @Override
   public void deletePivotSyncState() {
     // Make sure downloader is stopped before we start cleaning up its dependencies
     worldStateDownloader.cancel();
@@ -193,12 +196,8 @@ public class PivotSyncDownloader {
     }
 
     // Wire bidirectional references for SnapSync
-    if (worldStateDownloader instanceof SnapWorldStateDownloader
-        && chainDownloader instanceof SnapSyncChainDownloader) {
-      ((SnapWorldStateDownloader) worldStateDownloader)
-          .setChainDownloader((SnapSyncChainDownloader) chainDownloader);
-      LOG.debug("Wired bidirectional references between chain and world state downloaders");
-    }
+    worldStateDownloader.setChainDownloader(chainDownloader);
+    LOG.debug("Wired bidirectional references between chain and world state downloaders");
   }
 
   protected PivotSyncState storeState(final PivotSyncState state) {
@@ -222,7 +221,11 @@ public class PivotSyncDownloader {
       wireSnapSyncBidirectionalReferences(chainDownloader);
 
       final CompletableFuture<Void> worldStateFuture =
-          worldStateDownloader.run(fastSyncActions, currentState);
+          worldStateDownloader.run(
+              fastSyncActions,
+              currentState instanceof SnapSyncProcessState snapSyncState
+                  ? snapSyncState
+                  : new SnapSyncProcessState(currentState, Optional.empty()));
 
       final CompletableFuture<Void> chainFuture = chainDownloader.start();
 
@@ -247,6 +250,7 @@ public class PivotSyncDownloader {
     }
   }
 
+  @Override
   public Optional<TrailingPeerRequirements> calculateTrailingPeerRequirements() {
     return trailingPeerRequirements;
   }

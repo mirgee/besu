@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.chain.DefaultBlockchain;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.SyncTransactionReceiptEncoder;
@@ -184,7 +185,14 @@ public class SnapSyncChainDownloadPipelineFactory {
             protocolSchedule,
             ethContext,
             new SyncTransactionReceiptEncoder(new SimpleNoCopyRlpEncoder()),
-            Duration.ofMillis(syncConfig.getReceiptsDownloadStepTimeoutMillis()));
+            Duration.ofMillis(syncConfig.getForwardDownloadStepTimeoutMillis()));
+
+    final DownloadAndPersistBlockAccessListsStep downloadAndPersistBlockAccessListsStep =
+        new DownloadAndPersistBlockAccessListsStep(
+            ethContext,
+            metricsSystem,
+            (DefaultBlockchain) blockchain,
+            Duration.ofMillis(syncConfig.getForwardDownloadStepTimeoutMillis()));
 
     final ImportSyncBlocksStep importBlocksStep =
         new ImportSyncBlocksStep(
@@ -209,6 +217,73 @@ public class SnapSyncChainDownloadPipelineFactory {
             "forwardBodiesReceipts")
         .thenProcessAsyncOrdered("downloadBodies", downloadBodiesStep, downloaderParallelism)
         .thenProcessAsyncOrdered("downloadReceipts", downloadReceiptsStep, downloaderParallelism)
+        .thenProcessAsyncOrdered(
+            "downloadAndPersistBlockAccessLists",
+            downloadAndPersistBlockAccessListsStep,
+            downloaderParallelism)
         .andFinishWith("importBlocks", importBlocksStep);
+  }
+
+  /**
+   * Forward block-access-list (BAL) download from start block to end block. Used for snap/2 to
+   * download BALs after headers are available.
+   *
+   * @param anchorBlock the block to start from
+   * @param pivotHeader the block to end at
+   * @return the forward BAL download pipeline
+   */
+  public Pipeline<List<BlockHeader>> createBlockAccessListDownloadPipeline(
+      final long anchorBlock, final BlockHeader pivotHeader) {
+
+    long pivotHeaderNumber = pivotHeader.getNumber();
+
+    final int downloaderParallelism = syncConfig.getDownloaderParallelism();
+    final int bodiesRequestSize = syncConfig.getDownloaderBodiesRequestSize();
+
+    final MutableBlockchain blockchain = protocolContext.getBlockchain();
+
+    LOG.trace(
+        "Creating forward BAL download pipeline: anchorBlock={}, pivotHeaderNumber={}, parallelism={}, batchSize={}",
+        anchorBlock,
+        pivotHeaderNumber,
+        downloaderParallelism,
+        bodiesRequestSize);
+
+    final BlockHeaderSource headerSource =
+        new BlockHeaderSource(blockchain, anchorBlock, pivotHeaderNumber, bodiesRequestSize);
+
+    final DownloadAndPersistBlockAccessListsStep downloadBlockAccessListsStep =
+        new DownloadAndPersistBlockAccessListsStep(
+            ethContext,
+            metricsSystem,
+            (DefaultBlockchain) blockchain,
+            Duration.ofMillis(syncConfig.getForwardDownloadStepTimeoutMillis()));
+    return PipelineBuilder.createPipelineFrom(
+            "forwardHeaderSource",
+            headerSource,
+            downloaderParallelism,
+            metricsSystem.createLabelledCounter(
+                BesuMetricCategory.SYNCHRONIZER,
+                "forward_bal_pipeline_processed_total",
+                "Number of entries processed by each forward BAL pipeline stage",
+                "step",
+                "action"),
+            true,
+            "forwardBal")
+        .thenProcess(
+            "filterBalEnabledHeaders",
+            headers ->
+                headers.stream()
+                    .filter(h -> protocolSchedule.getByBlockHeader(h).isBlockAccessListEnabled())
+                    .toList())
+        .thenProcessAsyncOrdered(
+            "downloadBlockAccessLists",
+            downloadBlockAccessListsStep::downloadAndPersist,
+            downloaderParallelism)
+        .andFinishWith("finishBal", headers -> {});
+  }
+
+  public boolean isSnap2Enabled() {
+    return Boolean.TRUE.equals(syncConfig.getSnapSyncConfiguration().isSnap2Enabled());
   }
 }
