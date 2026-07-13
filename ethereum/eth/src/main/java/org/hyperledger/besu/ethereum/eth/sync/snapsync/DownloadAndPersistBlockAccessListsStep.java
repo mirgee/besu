@@ -110,6 +110,8 @@ public class DownloadAndPersistBlockAccessListsStep
     if (headers.isEmpty()) {
       return CompletableFuture.completedFuture(headers);
     }
+    final long firstBlock = headers.getFirst().getNumber();
+    final long lastBlock = headers.getLast().getNumber();
     return blockAccessListDownloader
         .apply(headers)
         .orTimeout(timeoutDuration.toMillis(), TimeUnit.MILLISECONDS)
@@ -117,15 +119,19 @@ public class DownloadAndPersistBlockAccessListsStep
             (blockAccessLists, error) -> {
               if (error != null) {
                 LOG.warn(
-                    "Failed to download block access lists for {} headers; proceeding without them",
-                    headers.size(),
+                    "Failed to download snap/2 block access lists for blocks [{}, {}] from any peer; "
+                        + "sync cannot advance past the current pivot until these BALs are retrieved",
+                    firstBlock,
+                    lastBlock,
                     error);
                 return headers;
               }
               if (blockAccessLists == null) {
                 LOG.warn(
-                    "Received null block access list response for {} headers; proceeding without them",
-                    headers.size());
+                    "Received null snap/2 block access list response for blocks [{}, {}]; "
+                        + "sync cannot advance past the current pivot until these BALs are retrieved",
+                    firstBlock,
+                    lastBlock);
                 return headers;
               }
               persistBlockAccessLists(headers, blockAccessLists);
@@ -144,10 +150,12 @@ public class DownloadAndPersistBlockAccessListsStep
           balEnabledHeaders.size());
     }
     final BlockchainStorage.Updater updater = blockchain.getBlockchainStorage().updater();
+    int unavailableCount = 0;
     for (int i = 0; i < persistedCount; i++) {
       final BlockHeader header = balEnabledHeaders.get(i);
       final SyncBlockAccessList syncBlockAccessList = syncBlockAccessLists.get(i);
       if (syncBlockAccessList.isUnavailable()) {
+        unavailableCount++;
         continue;
       }
       try {
@@ -161,5 +169,12 @@ public class DownloadAndPersistBlockAccessListsStep
       }
     }
     updater.commit();
+    if (unavailableCount > 0) {
+      LOG.warn(
+          "{} of {} downloaded block access list(s) were unavailable from peers and were not persisted; "
+              + "snap/2 pivot catch-up cannot proceed while these BALs are missing",
+          unavailableCount,
+          persistedCount);
+    }
   }
 }

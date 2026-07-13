@@ -105,6 +105,7 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
                                 .setMessage("failed to exec consensus method {}, error: {}")
                                 .addArgument(this.getName())
                                 .addArgument(t.getMessage())
+                                .setCause(t)
                                 .log();
                           }
                           return new JsonRpcErrorResponse(
