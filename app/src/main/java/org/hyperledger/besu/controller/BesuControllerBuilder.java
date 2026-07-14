@@ -1130,7 +1130,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
           protocolContext,
           nodeKey,
           blockchain.getChainHeadHeader());
-    } else if (genesisConfigOptions.getTerminalTotalDifficulty().isPresent()) {
+    } else if (genesisConfigOptions.getTerminalTotalDifficulty().isPresent()
+        && !Boolean.TRUE.equals(syncConfig.getSnapSyncConfiguration().isSnap2Enabled())) {
       LOG.info("TTD difficulty is present, creating initial sync for PoS");
 
       final MergeContext mergeContext = protocolContext.getConsensusContext(MergeContext.class);
