@@ -593,6 +593,12 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
             fetchAccountStorageRoots(pendingAffected, newPivotBlockHeader);
         applyBlockAccessLists(currentPivotBlockHeader, newPivotBlockHeader);
         final Map<Hash, Bytes32> correctRoots = rootsFuture.join();
+        final int patched = blockAccessListApplier.patchStorageRoots(correctRoots);
+        LOG.debug(
+            "snap/2 pivot catch-up ({} -> {}): {} storage roots patched",
+            currentPivotBlockHeader.getNumber(),
+            newPivotBlockHeader.getNumber(),
+            patched);
         retargetQueuedRequests(newPivotBlockHeader, correctRoots);
         snapSyncState.setCurrentHeader(newPivotBlockHeader);
       } catch (final Throwable e) {
