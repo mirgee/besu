@@ -151,19 +151,19 @@ class SnapV2ReorgHealerPlanTest {
     // Bob: stale 2s only
     // Eve: stale 3s only
     // NewContract: stale 3s only (would-be contract deployment)
-    assertDivergedAccounts(plan, BOB, EVE, NEW_CONTRACT);
+    assertAccountsToRefetch(plan, BOB, EVE, NEW_CONTRACT);
 
     // Alice, Charlie, Dave, Frank, Grace — none of these are diverged.
-    assertNoDivergedAccounts(plan, ALICE, CHARLIE, DAVE, FRANK, GRACE);
+    assertNoAccountsToRefetch(plan, ALICE, CHARLIE, DAVE, FRANK, GRACE);
 
     // --- Diverged slots ---
     // Frank's slot 2 (100->200 in stale 4s, absent from canonical 4c).
-    assertDivergedSlots(plan, FRANK, s2);
-    assertNoDivergedSlots(plan, FRANK, s1, s3);
+    assertSlotsToRefetch(plan, FRANK, s2);
+    assertNoSlotsToRefetch(plan, FRANK, s1, s3);
 
     // Grace's slot 5 (333 in stale 4s, absent from canonical 4c — Grace has a balance touch in
     // canonical 4c so the account overlaps, but the slot is diverged).
-    assertDivergedSlots(plan, GRACE, s5);
+    assertSlotsToRefetch(plan, GRACE, s5);
 
     assertThat(plan.isClean()).isFalse();
   }
@@ -210,15 +210,15 @@ class SnapV2ReorgHealerPlanTest {
     assertThat(plan.toBlock()).isEqualTo(2L);
 
     // Dave was touched only in the stale block (balance change) -> diverged account.
-    assertDivergedAccounts(plan, DAVE);
+    assertAccountsToRefetch(plan, DAVE);
     // NewContract changed only storage on the stale block: no scalar field diverged, so its
     // account record needs no re-fetch — the diverged slots below suffice. Alice, Charlie, and
     // Frank overlap on both forks; Grace is canonical-only; Bob and Eve are untouched.
-    assertNoDivergedAccounts(plan, NEW_CONTRACT, ALICE, CHARLIE, FRANK, GRACE, BOB, EVE);
+    assertNoAccountsToRefetch(plan, NEW_CONTRACT, ALICE, CHARLIE, FRANK, GRACE, BOB, EVE);
 
     // NewContract's slots were touched only in the stale block -> diverged.
-    assertThat(plan.divergedSlotsByAccount()).containsOnlyKeys(NEW_CONTRACT.addressHash());
-    assertDivergedSlots(plan, NEW_CONTRACT, slot1, slot2);
+    assertThat(plan.slotsToRefetch()).containsOnlyKeys(NEW_CONTRACT.addressHash());
+    assertSlotsToRefetch(plan, NEW_CONTRACT, slot1, slot2);
 
     assertThat(plan.isClean()).isFalse();
   }
@@ -258,9 +258,9 @@ class SnapV2ReorgHealerPlanTest {
         plan(staleBlock, canonicalBlock, fullAccountRange(), fullStorageFor(NEW_CONTRACT));
 
     // NewContract was touched only on the orphaned fork -> account is diverged.
-    assertDivergedAccounts(plan, NEW_CONTRACT);
+    assertAccountsToRefetch(plan, NEW_CONTRACT);
     // Its slot 5 was also touched only on the orphaned fork -> slot is diverged too.
-    assertDivergedSlots(plan, NEW_CONTRACT, slot5);
+    assertSlotsToRefetch(plan, NEW_CONTRACT, slot5);
     assertThat(plan.isClean()).isFalse();
   }
 
@@ -296,9 +296,9 @@ class SnapV2ReorgHealerPlanTest {
         plan(staleBlock, canonicalBlock, fullAccountRange(), fullStorageFor(NEW_CONTRACT));
 
     // NewContract is touched on both forks -> its account hash is not diverged.
-    assertNoDivergedAccounts(plan, NEW_CONTRACT, ALICE);
+    assertNoAccountsToRefetch(plan, NEW_CONTRACT, ALICE);
     // Slot 5 was touched only in the stale fork -> diverged at the slot level.
-    assertDivergedSlots(plan, NEW_CONTRACT, slotOnlyInStale);
+    assertSlotsToRefetch(plan, NEW_CONTRACT, slotOnlyInStale);
     // Slot divergence alone is enough to make the plan non-clean.
     assertThat(plan.isClean()).isFalse();
   }
@@ -331,9 +331,9 @@ class SnapV2ReorgHealerPlanTest {
         plan(staleBlock, canonicalBlock, fullAccountRange(), fullStorageFor(NEW_CONTRACT));
 
     // No scalar field changed, so the account record itself is intact...
-    assertNoDivergedAccounts(plan, NEW_CONTRACT);
+    assertNoAccountsToRefetch(plan, NEW_CONTRACT);
     // ...but its stale slot must be repaired, which also restores the storage root.
-    assertDivergedSlots(plan, NEW_CONTRACT, slot5);
+    assertSlotsToRefetch(plan, NEW_CONTRACT, slot5);
     assertThat(plan.isClean()).isFalse();
   }
 
@@ -419,7 +419,7 @@ class SnapV2ReorgHealerPlanTest {
             new DownloadedStorageRangeTracker());
 
     // Dave was touched only in the stale fork but its range hasn't been downloaded yet -> excluded.
-    assertNoDivergedAccounts(plan, DAVE);
+    assertNoAccountsToRefetch(plan, DAVE);
     assertClean(plan);
   }
 
@@ -461,11 +461,12 @@ class SnapV2ReorgHealerPlanTest {
     final ReorgPlan plan =
         plan(staleBlock, canonicalBlock, pendingAccounts(ALICE), singleSlotRange(ALICE, slot1));
 
-    // Alice is touched on both forks -> not a diverged account.
-    assertNoDivergedAccounts(plan, ALICE);
-    // Slot 1 is in the downloaded range -> diverged. Slot 5 is NOT in the range -> excluded.
-    assertDivergedSlots(plan, ALICE, slot1);
-    assertNoDivergedSlots(plan, ALICE, slot5);
+    // Alice is pending with touched storage -> its record must be re-fetched (root can't
+    // recompute).
+    assertAccountsToRefetch(plan, ALICE);
+    // Slot 1 is in the downloaded range -> re-fetch. Slot 5 is NOT in the range -> excluded.
+    assertSlotsToRefetch(plan, ALICE, slot1);
+    assertNoSlotsToRefetch(plan, ALICE, slot5);
     assertThat(plan.isClean()).isFalse();
   }
 
@@ -500,7 +501,7 @@ class SnapV2ReorgHealerPlanTest {
         plan(staleBlock, canonicalBlock, fullAccountRange(), fullStorageFor(DAVE));
 
     // Dave's stale entry had no changes -> it never made it into orphanedTouches -> not diverged.
-    assertNoDivergedAccounts(plan, DAVE);
+    assertNoAccountsToRefetch(plan, DAVE);
     assertClean(plan);
   }
 
@@ -555,8 +556,8 @@ class SnapV2ReorgHealerPlanTest {
 
     // Alice was touched only on the orphaned fork -> diverged.
     // Bob was touched only on the canonical fork -> applied by canonical BALs, not diverged.
-    assertDivergedAccounts(plan, ALICE);
-    assertNoDivergedAccounts(plan, BOB);
+    assertAccountsToRefetch(plan, ALICE);
+    assertNoAccountsToRefetch(plan, BOB);
     assertThat(plan.isClean()).isFalse();
   }
 
@@ -841,10 +842,10 @@ class SnapV2ReorgHealerPlanTest {
     final ReorgPlan plan = plan(staleBlock, canonicalBlock, accountTracker, storageTracker);
 
     // Frank overlaps on both forks -> not a diverged account.
-    assertNoDivergedAccounts(plan, FRANK, ALICE);
+    assertNoAccountsToRefetch(plan, FRANK, ALICE);
     // Slot 5 was touched only in the stale fork and Frank's storage is fully downloaded ->
     // diverged, even though the slot tracker no longer holds per-slot entries for Frank.
-    assertDivergedSlots(plan, FRANK, slot5);
+    assertSlotsToRefetch(plan, FRANK, slot5);
     assertThat(plan.isClean()).isFalse();
   }
 
@@ -875,7 +876,7 @@ class SnapV2ReorgHealerPlanTest {
         plan(
             staleBlock, canonicalBlock, pendingAccounts(DAVE), new DownloadedStorageRangeTracker());
 
-    assertDivergedAccounts(plan, DAVE);
+    assertAccountsToRefetch(plan, DAVE);
     assertThat(plan.isClean()).isFalse();
   }
 
@@ -947,7 +948,7 @@ class SnapV2ReorgHealerPlanTest {
     final ReorgPlan plan = plan(staleBlock, canonicalBlock);
 
     // Nonce-only and code-only changes both count as touches -> both accounts are diverged.
-    assertDivergedAccounts(plan, DAVE, NEW_CONTRACT);
+    assertAccountsToRefetch(plan, DAVE, NEW_CONTRACT);
     assertThat(plan.isClean()).isFalse();
   }
 
@@ -982,10 +983,10 @@ class SnapV2ReorgHealerPlanTest {
         plan(staleBlock, canonicalBlock, fullAccountRange(), fullStorageFor(ALICE));
 
     // Alice's balance change makes her a diverged account...
-    assertDivergedAccounts(plan, ALICE);
+    assertAccountsToRefetch(plan, ALICE);
     // ...but the read-only slot 7 must not leak into the diverged slots.
-    assertNoDivergedSlots(plan, ALICE, slot7);
-    assertThat(plan.divergedSlotsByAccount()).isEmpty();
+    assertNoSlotsToRefetch(plan, ALICE, slot7);
+    assertThat(plan.slotsToRefetch()).isEmpty();
     assertThat(plan.isClean()).isFalse();
   }
 
@@ -1031,10 +1032,10 @@ class SnapV2ReorgHealerPlanTest {
 
     assertThat(plan.commonAncestor().getNumber()).isEqualTo(1L);
     // Alice is touched on both forks -> not a diverged account.
-    assertNoDivergedAccounts(plan, ALICE);
+    assertNoAccountsToRefetch(plan, ALICE);
     // Slot 5 was touched in orphaned block 3s (a different orphaned block than Alice's 2s balance
     // touch) and is absent from the canonical fork -> diverged. Touches must merge across blocks.
-    assertDivergedSlots(plan, ALICE, slot5);
+    assertSlotsToRefetch(plan, ALICE, slot5);
     assertThat(plan.isClean()).isFalse();
   }
 
@@ -1065,8 +1066,8 @@ class SnapV2ReorgHealerPlanTest {
 
     final ReorgPlan plan = plan(staleBlock, canonicalBlock);
 
-    assertDivergedAccounts(plan, ALICE);
-    assertThat(plan.divergedSlotsByAccount()).isEmpty();
+    assertAccountsToRefetch(plan, ALICE);
+    assertThat(plan.slotsToRefetch()).isEmpty();
     assertThat(plan.isClean()).isFalse();
   }
 
@@ -1089,7 +1090,7 @@ class SnapV2ReorgHealerPlanTest {
 
     final ReorgPlan plan = plan(staleBlock, canonicalBlock);
 
-    assertDivergedAccounts(plan, ALICE);
+    assertAccountsToRefetch(plan, ALICE);
     assertThat(plan.isClean()).isFalse();
   }
 
@@ -1112,7 +1113,7 @@ class SnapV2ReorgHealerPlanTest {
 
     final ReorgPlan plan = plan(staleBlock, canonicalBlock);
 
-    assertDivergedAccounts(plan, ALICE);
+    assertAccountsToRefetch(plan, ALICE);
     assertThat(plan.isClean()).isFalse();
   }
 
@@ -1142,10 +1143,10 @@ class SnapV2ReorgHealerPlanTest {
     final ReorgPlan plan =
         plan(staleBlock, canonicalBlock, fullAccountRange(), fullStorageFor(ALICE));
 
-    assertDivergedAccounts(plan, ALICE);
+    assertAccountsToRefetch(plan, ALICE);
     // The canonical slot write is not stale-only, so nothing is slot-diverged.
-    assertNoDivergedSlots(plan, ALICE, slot3);
-    assertThat(plan.divergedSlotsByAccount()).isEmpty();
+    assertNoSlotsToRefetch(plan, ALICE, slot3);
+    assertThat(plan.slotsToRefetch()).isEmpty();
     assertThat(plan.isClean()).isFalse();
   }
 
@@ -1168,7 +1169,7 @@ class SnapV2ReorgHealerPlanTest {
 
     final ReorgPlan plan = plan(staleBlock, canonicalBlock);
 
-    assertNoDivergedAccounts(plan, ALICE);
+    assertNoAccountsToRefetch(plan, ALICE);
     assertClean(plan);
   }
 
@@ -1201,7 +1202,7 @@ class SnapV2ReorgHealerPlanTest {
     final ReorgPlan plan = plan(block3s, block3c);
 
     // The balance overlaps on both forks, but the nonce changed on the orphaned fork only.
-    assertDivergedAccounts(plan, ALICE);
+    assertAccountsToRefetch(plan, ALICE);
     assertThat(plan.isClean()).isFalse();
   }
 
@@ -1261,8 +1262,8 @@ class SnapV2ReorgHealerPlanTest {
     final ReorgPlan plan =
         plan(staleBlock, canonicalBlock, fullAccountRange(), fullStorageFor(ALICE));
 
-    assertDivergedAccounts(plan, ALICE);
-    assertDivergedSlots(plan, ALICE, slot5);
+    assertAccountsToRefetch(plan, ALICE);
+    assertSlotsToRefetch(plan, ALICE, slot5);
     assertThat(plan.isClean()).isFalse();
   }
 
@@ -1306,6 +1307,114 @@ class SnapV2ReorgHealerPlanTest {
                     fullAccountRange(),
                     new DownloadedStorageRangeTracker()))
         .isInstanceOf(ReorgUnrecoverableException.class);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Account re-fetch: pending accounts whose storage root can't recompute locally.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * A pending account touched via storage (here on the canonical fork) must be re-fetched: its
+   * storage root cannot be recomputed locally, so {@code applyCanonicalBals} would leave it stale
+   * (recomputed over partial storage). The orphaned-storage case is covered by {@code
+   * excludesDivergedSlotsOutsideDownloadedStorageRange}, which asserts the same outcome.
+   *
+   * <pre>
+   * gen -- 1 +-- 2s (ALICE bal)   stale
+   *          +-- 2c (FRANK:s5)    canonical
+   * FRANK pending, storage not downloaded
+   * </pre>
+   */
+  @Test
+  void refetchesPendingAccountTouchedViaCanonicalStorage() {
+    final Block ancestor = b.appendBlockWithBal(b.header(0), b.emptyBal(), 1L);
+    final UInt256 slot5 = UInt256.valueOf(5);
+
+    final Block staleBlock =
+        b.appendStale(ancestor.getHeader(), b.balWithBalanceTouches(ALICE), 2L);
+    final Block canonicalBlock =
+        b.appendCanonical(
+            ancestor.getHeader(),
+            b.balWithStorageChanges(FRANK, Map.of(slot5, UInt256.valueOf(7))),
+            2L);
+
+    final ReorgPlan plan =
+        plan(
+            staleBlock,
+            canonicalBlock,
+            pendingAccounts(FRANK),
+            new DownloadedStorageRangeTracker());
+
+    assertAccountsToRefetch(plan, FRANK);
+    assertThat(plan.isClean()).isFalse();
+  }
+
+  /**
+   * A completed account touched via storage is re-fetched at the slot level only: its storage is
+   * fully present, so the root recomputes locally and the record needs no re-fetch.
+   *
+   * <pre>
+   * gen -- 1 +-- 2s (FRANK:s5)   stale
+   *          +-- 2c (ALICE bal)  canonical
+   * FRANK completed (full range downloaded)
+   * </pre>
+   */
+  @Test
+  void completedAccountTouchedViaStorageIsRefetchedAtSlotsOnly() {
+    final Block ancestor = b.appendBlockWithBal(b.header(0), b.emptyBal(), 1L);
+    final UInt256 slot5 = UInt256.valueOf(5);
+
+    final Block staleBlock =
+        b.appendStale(
+            ancestor.getHeader(),
+            b.balWithStorageChanges(FRANK, Map.of(slot5, UInt256.valueOf(9))),
+            2L);
+    final Block canonicalBlock =
+        b.appendCanonical(ancestor.getHeader(), b.balWithBalanceTouches(ALICE), 2L);
+
+    final ReorgPlan plan =
+        plan(
+            staleBlock,
+            canonicalBlock,
+            persistedAccounts(FRANK),
+            new DownloadedStorageRangeTracker());
+
+    assertNoAccountsToRefetch(plan, FRANK);
+    assertSlotsToRefetch(plan, FRANK, slot5);
+  }
+
+  /**
+   * An account whose range was never persisted has no local state to correct, so it is excluded
+   * from both re-fetch sets.
+   *
+   * <pre>
+   * gen -- 1 +-- 2s (FRANK:s5)    stale
+   *          +-- 2c (ALICE bal)   canonical
+   * only ALICE persisted; FRANK range not downloaded
+   * </pre>
+   */
+  @Test
+  void excludesUnpersistedAccountsFromRefetch() {
+    final Block ancestor = b.appendBlockWithBal(b.header(0), b.emptyBal(), 1L);
+    final UInt256 slot5 = UInt256.valueOf(5);
+
+    final Block staleBlock =
+        b.appendStale(
+            ancestor.getHeader(),
+            b.balWithStorageChanges(FRANK, Map.of(slot5, UInt256.valueOf(9))),
+            2L);
+    final Block canonicalBlock =
+        b.appendCanonical(ancestor.getHeader(), b.balWithBalanceTouches(ALICE), 2L);
+
+    final ReorgPlan plan =
+        plan(
+            staleBlock,
+            canonicalBlock,
+            persistedAccounts(ALICE),
+            new DownloadedStorageRangeTracker());
+
+    assertNoAccountsToRefetch(plan, FRANK);
+    assertClean(plan);
   }
 
   // ---------------------------------------------------------------------------
@@ -1411,28 +1520,28 @@ class SnapV2ReorgHealerPlanTest {
     return Arrays.stream(slots).map(ReorgBlockchainBuilder::slotHash).toArray(Hash[]::new);
   }
 
-  private static void assertDivergedAccounts(final ReorgPlan plan, final Address... expected) {
-    assertThat(plan.divergedAccounts()).containsExactlyInAnyOrder(addressHashes(expected));
+  private static void assertAccountsToRefetch(final ReorgPlan plan, final Address... expected) {
+    assertThat(plan.accountsToRefetch()).containsExactlyInAnyOrder(addressHashes(expected));
   }
 
-  private static void assertNoDivergedAccounts(final ReorgPlan plan, final Address... unexpected) {
-    assertThat(plan.divergedAccounts()).doesNotContain(addressHashes(unexpected));
+  private static void assertNoAccountsToRefetch(final ReorgPlan plan, final Address... unexpected) {
+    assertThat(plan.accountsToRefetch()).doesNotContain(addressHashes(unexpected));
   }
 
-  private static void assertDivergedSlots(
+  private static void assertSlotsToRefetch(
       final ReorgPlan plan, final Address account, final UInt256... slots) {
-    assertThat(plan.divergedSlotsFor(account.addressHash()))
+    assertThat(plan.slotsToRefetchFor(account.addressHash()))
         .containsExactlyInAnyOrder(slotHashes(slots));
   }
 
-  private static void assertNoDivergedSlots(
+  private static void assertNoSlotsToRefetch(
       final ReorgPlan plan, final Address account, final UInt256... slots) {
-    assertThat(plan.divergedSlotsFor(account.addressHash())).doesNotContain(slotHashes(slots));
+    assertThat(plan.slotsToRefetchFor(account.addressHash())).doesNotContain(slotHashes(slots));
   }
 
   private static void assertClean(final ReorgPlan plan) {
     assertThat(plan.isClean()).isTrue();
-    assertThat(plan.divergedAccounts()).isEmpty();
-    assertThat(plan.divergedSlotsByAccount()).isEmpty();
+    assertThat(plan.accountsToRefetch()).isEmpty();
+    assertThat(plan.slotsToRefetch()).isEmpty();
   }
 }

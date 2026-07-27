@@ -26,16 +26,17 @@ public record ReorgPlan(
     BlockHeader oldPivot,
     BlockHeader newPivot,
     /**
-     * Account hashes with scalar fields (balance, nonce or code) changed only on the orphaned fork.
-     * The canonical BALs don't cover those fields, so the account record must be re-fetched at the
-     * new pivot. Scoped to persisted account ranges.
+     * Persisted accounts whose canonical record must be re-fetched via GetAccountRange: either a
+     * scalar field (balance, nonce, code) changed only on the orphaned fork, or the storage root
+     * cannot be recomputed locally because the account is pending and its storage was touched on
+     * either fork. If the account is absent at the new pivot, it is deleted.
      */
-    Set<Hash> divergedAccounts,
+    Set<Hash> accountsToRefetch,
     /**
      * Per-account slot hashes touched on the orphaned fork but absent from the canonical BALs,
-     * scoped to persisted slots (per-slot for pending accounts; all slots for completed accounts).
+     * scoped to downloaded slots (per-slot for pending accounts; all slots for completed accounts).
      */
-    Map<Hash, Set<Hash>> divergedSlotsByAccount) {
+    Map<Hash, Set<Hash>> slotsToRefetch) {
 
   /** The first canonical block to apply BALs for (inclusive). */
   public long fromBlock() {
@@ -47,14 +48,13 @@ public record ReorgPlan(
     return newPivot.getNumber();
   }
 
-  /** Returns true if no divergence was detected (no re-fetch needed). */
+  /** Returns true if no account or slot needs re-fetching. */
   public boolean isClean() {
-    return divergedAccounts.isEmpty()
-        && divergedSlotsByAccount.values().stream().allMatch(Set::isEmpty);
+    return accountsToRefetch.isEmpty() && slotsToRefetch.values().stream().allMatch(Set::isEmpty);
   }
 
-  /** Returns an unmodifiable view of the diverged slot hashes for the given account. */
-  public Set<Hash> divergedSlotsFor(final Hash accountHash) {
-    return Collections.unmodifiableSet(divergedSlotsByAccount.getOrDefault(accountHash, Set.of()));
+  /** Returns an unmodifiable view of the slot hashes to re-fetch for the given account. */
+  public Set<Hash> slotsToRefetchFor(final Hash accountHash) {
+    return Collections.unmodifiableSet(slotsToRefetch.getOrDefault(accountHash, Set.of()));
   }
 }
