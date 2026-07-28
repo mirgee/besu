@@ -51,7 +51,7 @@ public class SnapV2ReorgHealer {
 
   private static final Logger LOG = LoggerFactory.getLogger(SnapV2ReorgHealer.class);
 
-  static final int MAX_ANCESTOR_WALK = 64;
+  static final int MAX_ANCESTOR_WALK = 95;
 
   private final MutableBlockchain blockchain;
   private final ProtocolSchedule protocolSchedule;
@@ -88,6 +88,7 @@ public class SnapV2ReorgHealer {
    */
   @VisibleForTesting
   public BlockHeader findCommonAncestor(final BlockHeader oldPivot, final BlockHeader newPivot) {
+    // TODO: use another pivot instead of throwing
     if (!blockchain.blockIsOnCanonicalChain(newPivot.getHash())) {
       throw new ReorgUnrecoverableException(
           "Cannot recover reorg: new pivot "
@@ -127,9 +128,7 @@ public class SnapV2ReorgHealer {
    * Builds the deterministic reorg recovery plan. All inputs are read locally: canonical headers
    * and BALs by number, orphaned headers and BALs by hash.
    *
-   * @throws ReorgUnrecoverableException if no common ancestor is found within the walk bound, the
-   *     reorg dips below EIP-7928 (BAL) activation, or a required orphaned BAL has been pruned
-   *     locally.
+   * @throws ReorgUnrecoverableException if no common ancestor is found within the walk bound
    * @throws IllegalStateException if a canonical header or BAL in the apply window is missing
    *     locally.
    */
