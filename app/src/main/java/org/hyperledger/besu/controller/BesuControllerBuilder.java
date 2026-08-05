@@ -1155,7 +1155,6 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
       final Runnable cleanupAction =
           () -> {
             cleanups.forEach(Runnable::run);
-            LOG.info("Initial sync done, unsubscribing forkchoice + newPayload listeners");
           };
 
       final PivotBlockSelector selector;
@@ -1192,12 +1191,19 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
       }
 
       final long newPayloadSubscriptionId = mergeContext.addNewPayloadListener(newPayloadListener);
-      cleanups.add(() -> mergeContext.removeNewPayloadListener(newPayloadSubscriptionId));
+      cleanups.add(
+          () -> {
+            mergeContext.removeNewPayloadListener(newPayloadSubscriptionId);
+            LOG.info("Unsubscribed newPayload listener");
+          });
 
       final long selectorSubscriptionId =
           mergeContext.addNewUnverifiedForkchoiceListener(forkchoiceListener);
       cleanups.add(
-          () -> mergeContext.removeNewUnverifiedForkchoiceListener(selectorSubscriptionId));
+          () -> {
+            mergeContext.removeNewUnverifiedForkchoiceListener(selectorSubscriptionId);
+            LOG.info("Unsubscribed forkchoice listener");
+          });
 
       return selector;
     } else {

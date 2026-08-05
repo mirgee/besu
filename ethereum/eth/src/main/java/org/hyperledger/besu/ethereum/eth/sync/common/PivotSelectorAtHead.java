@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -232,7 +232,18 @@ public class PivotSelectorAtHead extends AbstractForkchoicePivotSelector {
       return CompletableFuture.completedFuture(new SnapSyncProcessState(head));
     }
     LOG.debug("Walking back {} blocks from head {} for pivot", blocksBehindHead, head.getNumber());
-    return walkBackParents(head, (int) blocksBehindHead).thenApply(SnapSyncProcessState::new);
+    return walkBackParents(head, (int) blocksBehindHead)
+        .thenApply(
+            pivotHeader -> {
+              if (hasLastPivot() && pivotHeader.getNumber() < getLastReturnedPivotNumber()) {
+                LOG.debug(
+                    "FCU-anchored pivot {} is behind last returned pivot {}; reusing last pivot",
+                    pivotHeader.getNumber(),
+                    getLastReturnedPivotNumber());
+                return lastPivotState();
+              }
+              return new SnapSyncProcessState(pivotHeader);
+            });
   }
 
   /**
