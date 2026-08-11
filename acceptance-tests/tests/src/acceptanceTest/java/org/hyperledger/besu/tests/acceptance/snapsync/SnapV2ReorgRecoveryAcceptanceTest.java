@@ -17,36 +17,19 @@ package org.hyperledger.besu.tests.acceptance.snapsync;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
-import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
-import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
-import org.hyperledger.besu.ethereum.eth.sync.snapsync.ImmutableSnapSyncConfiguration;
-import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
-import org.hyperledger.besu.tests.acceptance.dsl.AcceptanceTestBase;
 import org.hyperledger.besu.tests.acceptance.dsl.account.Account;
-import org.hyperledger.besu.tests.acceptance.dsl.account.Accounts;
 import org.hyperledger.besu.tests.acceptance.dsl.node.BesuNode;
-import org.hyperledger.besu.tests.acceptance.dsl.node.cluster.Cluster;
-import org.hyperledger.besu.tests.acceptance.dsl.node.cluster.ClusterConfigurationBuilder;
 import org.hyperledger.besu.tests.acceptance.snapsync.AmsterdamEngineApi.BuiltBlock;
 
 import java.io.IOException;
 import java.math.BigInteger;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.web3j.crypto.Credentials;
 import org.web3j.crypto.RawTransaction;
-import org.web3j.crypto.TransactionEncoder;
-import org.web3j.protocol.core.DefaultBlockParameter;
-import org.web3j.protocol.core.methods.response.EthBlock;
-import org.web3j.utils.Numeric;
 
 /**
  * Snap/2 reorg recovery, end to end: a node snap-syncs toward fork A, and while its world-state
@@ -64,7 +47,7 @@ import org.web3j.utils.Numeric;
  * keep that window open for several seconds; if this starts timing out on a slow CI agent, retune
  * {@link #CONTRACTS_PER_HEAVY_BLOCK}.
  */
-public class SnapV2ReorgRecoveryAcceptanceTest extends AcceptanceTestBase {
+public class SnapV2ReorgRecoveryAcceptanceTest extends AbstractSnapV2AcceptanceTest {
 
   // Fork geometry: PivotSelectorAtHead anchors the pivot at head - 1, so pivotA = 73 and
   // pivotB = 84. Distinct fee recipients diverge the forks at block 2; all scenario transactions
@@ -73,17 +56,15 @@ public class SnapV2ReorgRecoveryAcceptanceTest extends AcceptanceTestBase {
   private static final int FORK_A_HEIGHT = 74;
   private static final int FORK_B_HEIGHT = 85;
 
-  // The pivot is reused while the head stays within this window of the last pivot, and refreshed
-  // past it. Phase 1 (head=74, pivot=73): lag=1 < 10, pivot reused. Phase 2 (head=85): lag=12 >=
-  // 10, pivot refreshes to fork B's pivot, triggering the continuation round and the reorg
-  // healer. FORK_B_HEIGHT must keep the ancestor walk from pivotB to the shared block 1 under
-  // SnapV2ReorgHealer.MAX_ANCESTOR_WALK (95).
-  private static final int PIVOT_BLOCK_WINDOW_VALIDITY = 10;
+  // Phase 1 (head=74, pivot=73): lag=1 < PIVOT_BLOCK_WINDOW_VALIDITY, pivot reused. Phase 2
+  // (head=85): lag=12 >= 10, pivot refreshes to fork B's pivot, triggering the continuation round
+  // and the reorg healer. FORK_B_HEIGHT must keep the ancestor walk from pivotB to the shared
+  // block 1 under SnapV2ReorgHealer.MAX_ANCESTOR_WALK (95).
+  private static final int HEAVY_BLOCK_1 = 2;
+  private static final int HEAVY_BLOCK_2 = 3;
 
   // Blocks 2-3 of each fork deploy 1000 contracts each, so the throttled world-state download
   // runs for several seconds: the window in which the pivot is switched to fork B.
-  private static final int HEAVY_BLOCK_1 = 2;
-  private static final int HEAVY_BLOCK_2 = 3;
   private static final int CONTRACTS_PER_HEAVY_BLOCK = 1000;
   private static final int STORAGE_SLOTS_PER_CONTRACT = 2;
   private static final int SPLIT_SLOTS_FORK_A = 24;
@@ -92,14 +73,6 @@ public class SnapV2ReorgRecoveryAcceptanceTest extends AcceptanceTestBase {
   // Slot values written by the scenario contracts, per fork, so the winning fork is visible.
   private static final int FORK_A_VALUE = 1;
   private static final int FORK_B_VALUE = 2;
-
-  // A 2-slot deploy measures ~440K gas under Amsterdam state-growth pricing; 24 slots need ~2.7M.
-  private static final long DEPLOY_GAS_LIMIT = 600_000L;
-  private static final long SPLIT_DEPLOY_GAS_LIMIT = 4_000_000L;
-  // A bare 21k transfer to a fresh address halts: the new-account state-growth charge is drawn
-  // from the same gas pool.
-  private static final long TRANSFER_GAS_LIMIT = 250_000L;
-  private static final long CHAIN_ID = 1L;
 
   // Same benefactor nonces on both forks => same contract addresses on both forks, so the same
   // state is touched with different values. Nonce 2000 is the split-slot contract, 2001-2005 the
@@ -114,21 +87,12 @@ public class SnapV2ReorgRecoveryAcceptanceTest extends AcceptanceTestBase {
   // Fresh addresses that no genesis alloc or deployed contract can collide with.
   private static final String FORK_A_ONLY_RECIPIENT = "0x1000000000000000000000000000000000000001";
   private static final String FORK_B_ONLY_RECIPIENT = "0x1000000000000000000000000000000000000002";
-  private static final BigInteger TRANSFER_WEI = BigInteger.TEN.pow(18);
-  private static final Address BENEFACTOR_ADDRESS =
-      Address.fromHexString("0xfe3b557e8fb62b89f4916b721be55ceb828dbd73");
-  private static final Credentials BENEFACTOR =
-      Credentials.create(Accounts.GENESIS_ACCOUNT_ONE_PRIVATE_KEY);
 
   private static final String FEE_RECIPIENT_A = "0x1111111111111111111111111111111111111111";
   private static final String FEE_RECIPIENT_B = "0x2222222222222222222222222222222222222222";
 
-  private final AmsterdamEngineApi engineApi = new AmsterdamEngineApi(ethTransactions);
-
-  private Cluster noDiscoveryCluster;
   private BesuNode minerA;
   private BesuNode minerB;
-  private BesuNode syncNode;
 
   // Benefactor nonces per fork (they diverge after the split-slot contract at nonce 2000).
   private long nonceForkA = 0;
@@ -161,9 +125,7 @@ public class SnapV2ReorgRecoveryAcceptanceTest extends AcceptanceTestBase {
     engineApi.cachePayload(syncNode, forkAHead);
     awaitLog(
         "Header import progress 100.00%",
-        Duration.ofMinutes(3),
-        Duration.ofMillis(50),
-        () -> engineApi.setHead(syncNode, forkAHead.blockHash()));
+        Duration.ofMinutes(3), Duration.ofMillis(50), forkAHead.blockHash());
 
     // The reorg healer reads orphaned-fork BALs from local storage, so fork A's BALs must be
     // persisted locally before the reorg is triggered.
@@ -186,7 +148,7 @@ public class SnapV2ReorgRecoveryAcceptanceTest extends AcceptanceTestBase {
 
     // The sync node fully adopts fork B once the healer has corrected the partially downloaded
     // world state and the remaining ranges are downloaded at the fork-B pivot.
-    awaitHead(forkBHeadHash);
+    awaitHead(forkBHeadHash, FORK_B_HEIGHT);
 
     final String syncConsole = noDiscoveryCluster.peekConsoleContents();
     assertThat(syncConsole).contains("snap/2 reorg recovery complete");
@@ -256,12 +218,10 @@ public class SnapV2ReorgRecoveryAcceptanceTest extends AcceptanceTestBase {
 
   private void startNodes() throws IOException {
     final String genesis = loadAmsterdamGenesis();
-    noDiscoveryCluster =
-        new Cluster(new ClusterConfigurationBuilder().awaitPeerDiscovery(false).build(), net);
     minerA = createMiner("minerA", genesis);
     minerB = createMiner("minerB", genesis);
     syncNode = createSyncNode("syncNode", genesis);
-    noDiscoveryCluster.start(minerA, minerB, syncNode);
+    startCluster(minerA, minerB, syncNode);
   }
 
   /** Builds block 1 on miner A and imports it into miner B, so both forks share it. */
@@ -344,7 +304,7 @@ public class SnapV2ReorgRecoveryAcceptanceTest extends AcceptanceTestBase {
         miner,
         RawTransaction.createContractTransaction(
             BigInteger.valueOf(nonce),
-            BigInteger.valueOf(1_000), // gas price (wei), above the base fee
+            GAS_PRICE,
             BigInteger.valueOf(gasLimit),
             BigInteger.ZERO,
             storageContractInitCode(slotCount, slotValue)));
@@ -355,16 +315,14 @@ public class SnapV2ReorgRecoveryAcceptanceTest extends AcceptanceTestBase {
         miner,
         RawTransaction.createEtherTransaction(
             BigInteger.valueOf(nonce),
-            BigInteger.valueOf(1_000),
+            GAS_PRICE,
             BigInteger.valueOf(TRANSFER_GAS_LIMIT),
             recipient,
             TRANSFER_WEI));
   }
 
   private void sendRaw(final BesuNode node, final RawTransaction tx) {
-    node.execute(
-        ethTransactions.sendRawTransaction(
-            Numeric.toHexString(TransactionEncoder.signMessage(tx, CHAIN_ID, BENEFACTOR))));
+    sendRaw(node, tx, BENEFACTOR);
   }
 
   /**
@@ -387,35 +345,6 @@ public class SnapV2ReorgRecoveryAcceptanceTest extends AcceptanceTestBase {
     return code.toString();
   }
 
-  /**
-   * Repeats {@code nudge} (the nodes need fresh FCUs to make progress) until the sync console shows
-   * {@code logLine}; dumps the console on timeout to aid CI debugging.
-   */
-  private void awaitLog(
-      final String logLine,
-      final Duration timeout,
-      final Duration pollInterval,
-      final EngineNudge nudge) {
-    try {
-      await()
-          .atMost(timeout)
-          .pollInterval(pollInterval)
-          .until(
-              () -> {
-                nudge.run();
-                return noDiscoveryCluster.peekConsoleContents().contains(logLine);
-              });
-    } catch (final Throwable t) {
-      printConsole("TIMED OUT waiting for '" + logLine + "'");
-      throw t;
-    }
-  }
-
-  @FunctionalInterface
-  private interface EngineNudge {
-    void run() throws IOException;
-  }
-
   /** Waits until fork A's BALs are persisted locally (block 2 is below the fork-A pivot). */
   private void awaitOrphanedBalsPersisted() {
     await()
@@ -424,154 +353,7 @@ public class SnapV2ReorgRecoveryAcceptanceTest extends AcceptanceTestBase {
         .until(() -> engineApi.hasBlockAccessList(syncNode, "0x2"));
   }
 
-  /** Waits until the sync node's block at {@link #FORK_B_HEIGHT} is fork B's head. */
-  private void awaitHead(final String forkBHeadHash) {
-    try {
-      await()
-          .atMost(Duration.ofMinutes(5))
-          .pollInterval(Duration.ofSeconds(2))
-          .until(
-              () -> {
-                engineApi.setHead(syncNode, forkBHeadHash);
-                final EthBlock.Block head = blockAt(syncNode, FORK_B_HEIGHT);
-                return head != null && forkBHeadHash.equals(head.getHash());
-              });
-    } catch (final Throwable t) {
-      printConsole("SYNC COMPLETION TIMED OUT");
-      throw t;
-    }
-  }
-
-  private void printConsole(final String header) {
-    System.out.println(
-        header + " - sync console so far:\n" + noDiscoveryCluster.peekConsoleContents());
-  }
-
-  private EthBlock.Block blockAt(final BesuNode node, final long height) {
-    return node.execute(
-        ethTransactions.block(DefaultBlockParameter.valueOf(BigInteger.valueOf(height))));
-  }
-
-  private Account accountAt(final Address address) {
-    return Account.create(ethTransactions, address);
-  }
-
-  /** The contract deployed by the benefactor at the given nonce (same address on both forks). */
-  private Account contractAt(final long deployNonce) {
-    return accountAt(Address.contractAddress(BENEFACTOR_ADDRESS, deployNonce));
-  }
-
-  private void assertStorage(final Account contract, final int slot, final int expectedValue) {
-    assertThat(syncNode.execute(ethTransactions.getStorageAt(contract, BigInteger.valueOf(slot))))
-        .isEqualTo(storageValueHex(expectedValue));
-  }
-
   private void assertNoContract(final Account contract) {
     assertThat(syncNode.execute(ethTransactions.getCode(contract))).isEqualTo(Bytes.EMPTY);
-  }
-
-  private void assertBalance(final String address, final BigInteger expectedWei) {
-    assertThat(
-            syncNode.execute(ethTransactions.getBalance(accountAt(Address.fromHexString(address)))))
-        .isEqualTo(expectedWei);
-  }
-
-  private static String storageValueHex(final int value) {
-    return "0x" + "0".repeat(63) + Integer.toHexString(value);
-  }
-
-  private BesuNode createMiner(final String name, final String genesis) throws IOException {
-    final BesuNode node =
-        besu.createNode(
-            name,
-            b ->
-                b.devMode(false)
-                    .genesisConfigProvider(unused -> Optional.of(genesis))
-                    .dataStorageConfiguration(DataStorageConfiguration.DEFAULT_BONSAI_CONFIG)
-                    .engineRpcEnabled(true)
-                    .jsonRpcEnabled()
-                    .jsonRpcAdmin()
-                    .jsonRpcTxPool()
-                    .discoveryEnabled(false)
-                    .bootnodeEligible(false)
-                    .miningEnabled()
-                    .extraCLIOptions(
-                        List.of(
-                            // serve snap/2 (BALs and state ranges) to the sync node
-                            "--Xsnap2-enabled",
-                            // the heavy blocks carry 1000+ txs from the single benefactor
-                            "--tx-pool-max-future-by-sender=5000")));
-    node.setSynchronizerConfiguration(
-        SynchronizerConfiguration.builder()
-            .syncMode(SyncMode.FULL)
-            .syncMinimumPeerCount(1)
-            .snapSyncConfiguration(
-                ImmutableSnapSyncConfiguration.builder().isSnapServerEnabled(true).build())
-            .build());
-    return node;
-  }
-
-  private BesuNode createSyncNode(final String name, final String genesis) throws IOException {
-    final BesuNode node =
-        besu.createNode(
-            name,
-            b ->
-                b.devMode(false)
-                    .genesisConfigProvider(unused -> Optional.of(genesis))
-                    .dataStorageConfiguration(DataStorageConfiguration.DEFAULT_BONSAI_CONFIG)
-                    .engineRpcEnabled(true)
-                    .jsonRpcEnabled()
-                    .jsonRpcAdmin()
-                    .discoveryEnabled(false)
-                    .bootnodeEligible(false)
-                    // snap/2 downloader. The pivot check interval is shortened (default 1 minute)
-                    // and the world-state download throttled to one item per request, so the
-                    // pivot is re-evaluated, and switched to fork B, mid-download. The lowered
-                    // stall thresholds clear the brief dead-end after the retarget in seconds.
-                    .extraCLIOptions(
-                        List.of(
-                            "--Xsnap2-enabled",
-                            "--Xsnapsync-synchronizer-pivot-block-check-interval-millis=100",
-                            "--Xsynchronizer-world-state-request-parallelism=1",
-                            "--Xsynchronizer-world-state-hash-count-per-request=1",
-                            "--Xsnapsync-synchronizer-storage-count-per-request=1",
-                            "--Xsnapsync-synchronizer-bytecode-count-per-request=1",
-                            "--Xsynchronizer-world-state-max-requests-without-progress=50",
-                            "--Xsynchronizer-world-state-min-millis-before-stalling=10000")));
-    node.setSynchronizerConfiguration(
-        SynchronizerConfiguration.builder()
-            .syncMode(SyncMode.SNAP)
-            .syncMinimumPeerCount(1)
-            .snapSyncConfiguration(
-                ImmutableSnapSyncConfiguration.builder()
-                    .isSnapServerEnabled(true)
-                    .pivotBlockWindowValidity(PIVOT_BLOCK_WINDOW_VALIDITY)
-                    .build())
-            .build());
-    return node;
-  }
-
-  /**
-   * Amsterdam active at genesis (every block carries a BAL), a prefunded benefactor, and the Prague
-   * system contracts that block building needs.
-   */
-  private static String loadAmsterdamGenesis() {
-    try (var in =
-        SnapV2ReorgRecoveryAcceptanceTest.class.getResourceAsStream(
-            "/snapsync/snap_v2_reorg_genesis.json")) {
-      assertThat(in).as("snap_v2_reorg_genesis.json on the test classpath").isNotNull();
-      return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-    } catch (final IOException e) {
-      throw new RuntimeException(e);
-    }
-  }
-
-  @AfterEach
-  @Override
-  public void tearDownAcceptanceTestBase() {
-    if (noDiscoveryCluster != null) {
-      noDiscoveryCluster.stop();
-    }
-    super.tearDownAcceptanceTestBase();
   }
 }
