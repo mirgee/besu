@@ -52,6 +52,7 @@ class SnapV2BlockAccessListApplierPivotCatchupTest extends SnapV2TestFixtures {
   private static final UInt256 SP3 = UInt256.valueOf(103);
 
   private static final Bytes CAROL_CODE = Bytes.fromHexString("0x6080604052348015600e");
+  private static final Bytes NEW_CONTRACT_CODE = Bytes.fromHexString("0x6080604052348015600f");
 
   // The syncing node's partially-downloaded state.
   private final BonsaiWorldStateKeyValueStorage localStorage = newBonsaiStorage();
@@ -244,6 +245,71 @@ class SnapV2BlockAccessListApplierPivotCatchupTest extends SnapV2TestFixtures {
     }
 
     /**
+     * A brand-new account created inside the catch-up window whose account hash falls in a PENDING
+     * range must receive all of its storage slots: the account did not exist at the old pivot, so
+     * the BAL delta IS its complete storage.
+     *
+     * <pre>
+     * gen -- 1 (P=100, P.sp1=1)                 old pivot
+     *     -- 2 (N=50+code, N.s1=7, N.s2=8)      new pivot; N created after the old pivot
+     * local: P pending with sp1 downloaded; N's range pending, N never persisted
+     * </pre>
+     */
+    @Test
+    void appliesAllSlotsForNewAccountsInPendingRanges() {
+      final ReorgBlockchainBuilder b = new ReorgBlockchainBuilder();
+
+      final Block block1 =
+          b.appendBlockWithBal(
+              b.header(0),
+              b.merge(
+                  b.balWithBalances(Map.of(PETE, Wei.of(100))),
+                  b.balWithStorageChanges(PETE, Map.of(SP1, UInt256.valueOf(1)))),
+              1L);
+      final Block block2 =
+          b.appendBlockWithBal(
+              block1.getHeader(),
+              b.merge(
+                  b.balWithBalances(Map.of(NEW_CONTRACT, Wei.of(50))),
+                  b.balWithCodeChange(NEW_CONTRACT, NEW_CONTRACT_CODE),
+                  b.balWithStorageChanges(
+                      NEW_CONTRACT, Map.of(S1, UInt256.valueOf(7), S2, UInt256.valueOf(8)))),
+              2L);
+
+      final DownloadedAccountRangeTracker accountTracker =
+          accountRangeTracker(false, PETE, NEW_CONTRACT);
+      final DownloadedStorageRangeTracker storageTracker = downloadedSlots(PETE, SP1);
+
+      applyTo(localCoordinator, b, 1, 1, accountTracker, storageTracker);
+      applyTo(
+          canonicalCoordinator, b, 1, 2, fullAccountRange(), new DownloadedStorageRangeTracker());
+
+      applier(localCoordinator, b)
+          .applyBlockAccessLists(2L, block2.getHeader().getNumber(), accountTracker, storageTracker)
+          .commit();
+
+      // The new account is fully assembled from the BAL: scalars, code, and every slot.
+      final PmtStateTrieAccountValue newContract = readAccount(NEW_CONTRACT);
+      assertThat(newContract.getBalance()).isEqualTo(Wei.of(50));
+      assertThat(newContract.getCodeHash()).isEqualTo(Hash.hash(NEW_CONTRACT_CODE));
+      assertThat(readCode(NEW_CONTRACT)).hasValue(NEW_CONTRACT_CODE);
+      assertThat(readStorageSlot(NEW_CONTRACT, S1)).hasValue(UInt256.valueOf(7));
+      assertThat(readStorageSlot(NEW_CONTRACT, S2)).hasValue(UInt256.valueOf(8));
+
+      // Its storage root is recomputed locally and matches the canonical one at the new pivot.
+      assertThat(newContract.getStorageRoot()).isNotEqualTo(Hash.EMPTY_TRIE_HASH);
+      assertThat(newContract.getStorageRoot())
+          .isEqualTo(readAccount(canonicalCoordinator, NEW_CONTRACT).getStorageRoot());
+
+      // The pending account from the old pivot is untouched by the window.
+      assertThat(readAccount(PETE).getBalance()).isEqualTo(Wei.of(100));
+      assertThat(readStorageSlot(PETE, SP1)).hasValue(UInt256.valueOf(1));
+
+      // The local state is exactly the canonical one at the new pivot.
+      assertThat(worldStateRoot(localCoordinator)).isEqualTo(worldStateRoot(canonicalCoordinator));
+    }
+
+    /**
      * Blocks for which the schedule does not enable BALs are skipped, even if a BAL is stored.
      *
      * <pre>
@@ -413,30 +479,41 @@ class SnapV2BlockAccessListApplierPivotCatchupTest extends SnapV2TestFixtures {
      * db and the account trie — bringing the local world state root to the canonical one.
      *
      * <pre>
-     * gen -- 1 (P=100, P.sp1=1, P.sp2=2; C=50) -- 2 (empty)
+     * gen -- 1 (P=100, P.sp1=1; C=50) -- 2 (P.sp2=2) -- 3 (empty)
      * local: C completed; P pending with only sp1 downloaded -> P's storage root is stale
      * correctRoots (as fetched at the new pivot): P + C + Ghost (not persisted locally)
      * </pre>
+     *
+     * Blocks 1 and 2 must be applied in separate windows: a single [1,2] window would treat Pete as
+     * new and land sp2 locally as well.
      */
     @Test
     void rewritesOnlyStaleRoots() {
       final ReorgBlockchainBuilder b = new ReorgBlockchainBuilder();
 
+      // Block 1 creates Pete with the downloaded slot only; block 2 introduces sp2, which the slot
+      // guard then skips locally because Pete already exists.
       final Block block1 =
           b.appendBlockWithBal(
               b.header(0),
               b.merge(
                   b.balWithBalances(Map.of(PETE, Wei.of(100), CAROL, Wei.of(50))),
-                  b.balWithStorageChanges(
-                      PETE, Map.of(SP1, UInt256.valueOf(1), SP2, UInt256.valueOf(2)))),
+                  b.balWithStorageChanges(PETE, Map.of(SP1, UInt256.valueOf(1)))),
               1L);
-      final Block block2 = b.appendBlockWithBal(block1.getHeader(), b.emptyBal(), 2L);
+      final Block block2 =
+          b.appendBlockWithBal(
+              block1.getHeader(),
+              b.balWithStorageChanges(PETE, Map.of(SP2, UInt256.valueOf(2))),
+              2L);
+      final Block block3 = b.appendBlockWithBal(block2.getHeader(), b.emptyBal(), 3L);
 
       final DownloadedAccountRangeTracker accountTracker = accountRangeTracker(true, CAROL);
       addPendingAccounts(accountTracker, PETE);
-      applyTo(localCoordinator, b, 1, 1, accountTracker, downloadedSlots(PETE, SP1));
+      final DownloadedStorageRangeTracker storageTracker = downloadedSlots(PETE, SP1);
+      applyTo(localCoordinator, b, 1, 1, accountTracker, storageTracker);
+      applyTo(localCoordinator, b, 2, 2, accountTracker, storageTracker);
       applyTo(
-          canonicalCoordinator, b, 1, 1, fullAccountRange(), new DownloadedStorageRangeTracker());
+          canonicalCoordinator, b, 1, 3, fullAccountRange(), new DownloadedStorageRangeTracker());
 
       final Hash staleRoot = readAccount(PETE).getStorageRoot();
       final Hash canonicalPeteRoot = readAccount(canonicalCoordinator, PETE).getStorageRoot();
@@ -447,8 +524,8 @@ class SnapV2BlockAccessListApplierPivotCatchupTest extends SnapV2TestFixtures {
       // account was touched; patching operates on that same uncommitted batch.
       final var batch =
           applier.applyBlockAccessLists(
-              2L,
-              block2.getHeader().getNumber(),
+              3L,
+              block3.getHeader().getNumber(),
               accountTracker,
               new DownloadedStorageRangeTracker());
 
@@ -509,20 +586,34 @@ class SnapV2BlockAccessListApplierPivotCatchupTest extends SnapV2TestFixtures {
      * The exact {@code SnapV2WorldDownloadState.finishPivotCatchup} sequence for a clean pivot
      * advance — collect pending-affected accounts, fetch their roots at the new pivot, apply the
      * BALs, patch the stale roots, commit — over a partially downloaded state. Afterwards the local
-     * account trie root equals the canonical state root at the new pivot, even though the pending
-     * account's flat storage still holds only the downloaded subset of its slots.
+     * account trie root equals the canonical state root at the new pivot, even though the genuinely
+     * pending account's flat storage still holds only the downloaded subset of its slots.
+     *
+     * <p>The window exercises every account role at once: a completed account receiving scalars, a
+     * new storage slot and a nonce across multiple blocks (Carol); an untouched account (Dave); an
+     * account created after the old pivot inside a completed range (Grace); a pending existing
+     * account whose partial storage leaves its root stale and thus patched (Pete); and a brand-new
+     * account whose hash falls in a pending range, whose BAL delta is its complete storage, whose
+     * root is recomputed locally and therefore NOT patched (the new contract). The single {@code
+     * patched == 1} proves the contrast: only Pete needed a root re-fetch.
      *
      * <pre>
-     * gen -- 1 (C=1000,C.s1=1; P=100,P.sp1=1,P.sp2=2; D=75)
-     *     -- 2 (C=2000,C.s1=11,C.s2=22; P=300,P.sp1=10,P.sp2=20; G=50)
-     *     -- 3 (C.nonce=7)
-     * local: C, D, G ranges completed; P pending with only sp1 downloaded
+     * gen -- 1 (C=1000,C.s1=1; P=100,P.sp1=1; D=75)
+     *     -- 2 (P.sp2=2)
+     *     -- 3 (C=2000,C.s1=11,C.s2=22; P=300,P.sp1=10,P.sp2=20; G=50)
+     *     -- 4 (C.nonce=7; N=50+code,N.s1=7,N.s2=8)
+     * local: C, D, G completed; P pending (sp1 downloaded); N's range pending, never persisted
      * </pre>
+     *
+     * Blocks 1 and 2 must be applied in separate windows: a single [1,2] window would treat Pete as
+     * new and land sp2 locally as well.
      */
     @Test
-    void pivotCatchUpWithStorageRootPatchingReachesCanonicalStateRoot() {
+    void pivotCatchUpReachesCanonicalStateRoot() {
       final ReorgBlockchainBuilder b = new ReorgBlockchainBuilder();
 
+      // Block 1 creates Pete with the downloaded slot only; block 2 introduces sp2, which the slot
+      // guard then skips locally because Pete already exists.
       final Block block1 =
           b.appendBlockWithBal(
               b.header(0),
@@ -530,12 +621,16 @@ class SnapV2BlockAccessListApplierPivotCatchupTest extends SnapV2TestFixtures {
                   b.balWithBalances(
                       Map.of(CAROL, Wei.of(1000), PETE, Wei.of(100), DAVE, Wei.of(75))),
                   b.balWithStorageChanges(CAROL, Map.of(S1, UInt256.valueOf(1))),
-                  b.balWithStorageChanges(
-                      PETE, Map.of(SP1, UInt256.valueOf(1), SP2, UInt256.valueOf(2)))),
+                  b.balWithStorageChanges(PETE, Map.of(SP1, UInt256.valueOf(1)))),
               1L);
       final Block block2 =
           b.appendBlockWithBal(
               block1.getHeader(),
+              b.balWithStorageChanges(PETE, Map.of(SP2, UInt256.valueOf(2))),
+              2L);
+      final Block block3 =
+          b.appendBlockWithBal(
+              block2.getHeader(),
               b.merge(
                   b.balWithBalances(
                       Map.of(CAROL, Wei.of(2000), PETE, Wei.of(300), GRACE, Wei.of(50))),
@@ -543,44 +638,62 @@ class SnapV2BlockAccessListApplierPivotCatchupTest extends SnapV2TestFixtures {
                       CAROL, Map.of(S1, UInt256.valueOf(11), S2, UInt256.valueOf(22))),
                   b.balWithStorageChanges(
                       PETE, Map.of(SP1, UInt256.valueOf(10), SP2, UInt256.valueOf(20)))),
-              2L);
-      final Block block3 =
-          b.appendBlockWithBal(block2.getHeader(), b.balWithNonceChange(CAROL, 7L), 3L);
+              3L);
+      // Block 4 carries the nonce change and deploys the new contract inside a pending range.
+      final Block block4 =
+          b.appendBlockWithBal(
+              block3.getHeader(),
+              b.merge(
+                  b.balWithNonceChange(CAROL, 7L),
+                  b.balWithBalances(Map.of(NEW_CONTRACT, Wei.of(50))),
+                  b.balWithCodeChange(NEW_CONTRACT, NEW_CONTRACT_CODE),
+                  b.balWithStorageChanges(
+                      NEW_CONTRACT, Map.of(S1, UInt256.valueOf(7), S2, UInt256.valueOf(8)))),
+              4L);
 
       final DownloadedAccountRangeTracker accountTracker =
           accountRangeTracker(true, CAROL, DAVE, GRACE);
-      addPendingAccounts(accountTracker, PETE);
-      // The partial download at pivot block 1: Carol, Dave and Grace's ranges are complete;
-      // Pete's range is pending and only his sp1 slot has been downloaded so far.
+      addPendingAccounts(accountTracker, PETE, NEW_CONTRACT);
+      // The partial download at the old pivot: Carol, Dave and Grace's ranges are complete; Pete's
+      // range is pending and only his sp1 slot has been downloaded; the new contract's range is
+      // also pending and nothing of it exists locally yet.
       final DownloadedStorageRangeTracker storageTracker = downloadedSlots(PETE, SP1);
       applyTo(localCoordinator, b, 1, 1, accountTracker, storageTracker);
+      applyTo(localCoordinator, b, 2, 2, accountTracker, storageTracker);
 
       // The canonical reference state at the new pivot.
       applyTo(
-          canonicalCoordinator, b, 1, 3, fullAccountRange(), new DownloadedStorageRangeTracker());
+          canonicalCoordinator, b, 1, 4, fullAccountRange(), new DownloadedStorageRangeTracker());
 
       final SnapV2BlockAccessListApplier applier = applier(localCoordinator, b);
 
-      // 1. Which pending accounts may hold stale storage roots after the catch-up?
+      // 1. Which pending accounts may hold stale storage roots after the catch-up? Both Pete and
+      // the new contract had storage writes inside the window.
       final Set<Hash> pendingAffected =
           applier.collectPendingStorageAffected(
-              block1.getHeader(), block3.getHeader(), accountTracker);
-      assertThat(pendingAffected).containsExactlyInAnyOrder(PETE.addressHash());
+              block2.getHeader(), block4.getHeader(), accountTracker);
+      assertThat(pendingAffected)
+          .containsExactlyInAnyOrder(PETE.addressHash(), NEW_CONTRACT.addressHash());
 
       // 2. Fetch the correct roots at the new pivot. Production does this with proof-verified
       // GetAccountRange requests against peers; here the canonical reference state plays that role.
       final Map<Hash, Bytes32> fetchedRoots =
           Map.of(
               PETE.addressHash(),
-              Bytes32.wrap(readAccount(canonicalCoordinator, PETE).getStorageRoot().getBytes()));
+              Bytes32.wrap(readAccount(canonicalCoordinator, PETE).getStorageRoot().getBytes()),
+              NEW_CONTRACT.addressHash(),
+              Bytes32.wrap(
+                  readAccount(canonicalCoordinator, NEW_CONTRACT).getStorageRoot().getBytes()));
 
-      // 3.+4. Apply the BALs of blocks 2..3 and patch the stale roots on the same batch.
+      // 3.+4. Apply the BALs of blocks 3..4 and patch the stale roots on the same batch.
       final var batch =
           applier.applyBlockAccessLists(
-              2L, block3.getHeader().getNumber(), accountTracker, storageTracker);
+              3L, block4.getHeader().getNumber(), accountTracker, storageTracker);
       final int patched = applier.patchStorageRoots(batch, fetchedRoots);
       batch.commit();
 
+      // Only Pete's root was stale: the new contract's root was recomputed locally from its
+      // complete BAL delta and already matches the fetched canonical root.
       assertThat(patched).isEqualTo(1);
 
       // Completed account: every change applied, including the new storage slot and the nonce.
@@ -604,6 +717,17 @@ class SnapV2BlockAccessListApplierPivotCatchupTest extends SnapV2TestFixtures {
       assertThat(readStorageSlot(PETE, SP2)).isEmpty();
       assertThat(pete.getStorageRoot())
           .isEqualTo(readAccount(canonicalCoordinator, PETE).getStorageRoot());
+
+      // Brand-new account in a pending range: the BAL delta IS its complete storage, so every slot
+      // lands and the locally recomputed root already equals the canonical one — no patch needed.
+      final PmtStateTrieAccountValue newContract = readAccount(NEW_CONTRACT);
+      assertThat(newContract.getBalance()).isEqualTo(Wei.of(50));
+      assertThat(newContract.getCodeHash()).isEqualTo(Hash.hash(NEW_CONTRACT_CODE));
+      assertThat(readCode(NEW_CONTRACT)).hasValue(NEW_CONTRACT_CODE);
+      assertThat(readStorageSlot(NEW_CONTRACT, S1)).hasValue(UInt256.valueOf(7));
+      assertThat(readStorageSlot(NEW_CONTRACT, S2)).hasValue(UInt256.valueOf(8));
+      assertThat(newContract.getStorageRoot())
+          .isEqualTo(readAccount(canonicalCoordinator, NEW_CONTRACT).getStorageRoot());
 
       // The whole point of snap/2: no final healing phase — the root already matches.
       assertThat(worldStateRoot(localCoordinator)).isEqualTo(worldStateRoot(canonicalCoordinator));
