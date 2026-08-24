@@ -17,6 +17,7 @@ package org.hyperledger.besu.chainexport;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.chainimport.RlpBlockImporter;
 import org.hyperledger.besu.cli.config.EthNetworkConfig;
@@ -24,6 +25,9 @@ import org.hyperledger.besu.components.BesuComponent;
 import org.hyperledger.besu.config.NetworkDefinition;
 import org.hyperledger.besu.controller.BesuController;
 import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
+import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.ImmutableApiConfiguration;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -38,6 +42,7 @@ import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ScheduleBasedBlockHeaderFunctions;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
 import org.hyperledger.besu.ethereum.util.RawBlockIterator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
@@ -48,10 +53,12 @@ import org.hyperledger.besu.testutil.TestClock;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.math.BigInteger;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeAll;
@@ -304,6 +311,62 @@ public final class RlpBlockExporterTest {
         frameCount++;
       }
       assertThat(frameCount).isEqualTo(endBlock - startBlock);
+    }
+  }
+
+  @Test
+  public void exportBlocks_writesRealBalFrameWhenBlockAccessListIsPresent(
+      final @TempDir Path outputDir) throws IOException {
+    // Build a BlockAccessList with one balance change so encode() is non-empty
+    final Address addr = Address.fromHexString("0x000000000000000000000000000000000000abcd");
+    final BlockAccessList bal =
+        new BlockAccessList(
+            List.of(
+                new BlockAccessList.AccountChanges(
+                    addr,
+                    List.of(),
+                    List.of(),
+                    List.of(new BlockAccessList.BalanceChange(1L, Wei.of(1000L))),
+                    List.of(),
+                    List.of())));
+    final org.apache.tuweni.bytes.Bytes expectedPayload = bal.encode();
+    // Store the encoded bytes as rawRlp so exportBal() can retrieve them
+    final BlockAccessList balWithRaw = new BlockAccessList(bal.accountChanges(), expectedPayload);
+
+    final Hash blockHash = Hash.fromHexString("0x" + "ab".repeat(32));
+    final BlockHeader mockHeader = mock(BlockHeader.class);
+    when(mockHeader.getNumber()).thenReturn(1L);
+    final Block mockBlock = mock(Block.class);
+    when(mockBlock.getHeader()).thenReturn(mockHeader);
+    when(mockBlock.getHash()).thenReturn(blockHash);
+
+    final Blockchain mockBlockchain = mock(Blockchain.class);
+    when(mockBlockchain.getBlockByNumber(0L)).thenReturn(Optional.of(mockBlock));
+    when(mockBlockchain.getBlockAccessList(blockHash)).thenReturn(Optional.of(balWithRaw));
+
+    final Path outputPath = outputDir.resolve("output");
+    final Path balsPath = outputDir.resolve("output.bals");
+
+    // Override exportBlock so we don't need a fully-wired block for RLP encoding
+    final RlpBlockExporter exporter =
+        new RlpBlockExporter(mockBlockchain) {
+          @Override
+          protected void exportBlock(final FileOutputStream out, final Block block)
+              throws IOException {
+            // no-op; only the BAL sidecar is under test here
+          }
+        };
+
+    exporter.exportBlocks(
+        outputPath.toFile(), Optional.of(balsPath.toFile()), Optional.of(0L), Optional.of(1L));
+
+    final byte[] bals = Files.readAllBytes(balsPath);
+    try (final DataInputStream in = new DataInputStream(new ByteArrayInputStream(bals))) {
+      final int length = in.readInt();
+      assertThat(length).isEqualTo(expectedPayload.size()).isGreaterThan(0);
+      final byte[] payload = new byte[length];
+      in.readFully(payload);
+      assertThat(org.apache.tuweni.bytes.Bytes.of(payload)).isEqualTo(expectedPayload);
     }
   }
 

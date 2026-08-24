@@ -54,7 +54,7 @@ public class RlpBlockExporter {
    *     List; if empty no sidecar is written
    * @param maybeStartBlock the starting index of the block list to export (inclusive)
    * @param maybeEndBlock the ending index of the block list to export (exclusive), if not specified
-   *     a single block will be export
+   *     a single block will be exported
    * @throws IOException if an I/O error occurs while writing data to disk
    */
   public void exportBlocks(
@@ -120,6 +120,12 @@ public class RlpBlockExporter {
             .getBlockAccessList(block.getHash())
             .flatMap(BlockAccessList::rawRlp)
             .orElse(Bytes.EMPTY);
+    if (balRlp.isEmpty()) {
+      LOG.warn(
+          "Block {} has no Block Access List — writing empty BAL frame"
+              + " (block may pre-date Amsterdam activation or BAL data is missing)",
+          block.getHash());
+    }
     final byte[] bytes = balRlp.toArrayUnsafe();
     balsStream.writeInt(bytes.length);
     balsStream.write(bytes);
