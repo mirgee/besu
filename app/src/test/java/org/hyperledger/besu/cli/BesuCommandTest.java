@@ -876,10 +876,10 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
-  public void discoveryModeDefaultIsBoth() {
+  public void discoveryModeDefault() {
     parseCommand();
 
-    verify(mockRunnerBuilder).discoveryMode(eq(DiscoveryMode.BOTH));
+    verify(mockRunnerBuilder).discoveryMode(eq(DiscoveryMode.getDefault()));
     verify(mockRunnerBuilder).build();
 
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
@@ -2395,6 +2395,33 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
+  public void assertThatDiscoveryUdpAndMetricsTcpMaySharePort() {
+    parseCommand("--p2p-discovery-port=44444", "--metrics-enabled", "--metrics-port=44444");
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void assertThatIpv6P2pTcpAndMetricsTcpClash() {
+    parseCommand(
+        "--p2p-interface-ipv6=::",
+        "--p2p-port-ipv6=30404",
+        "--metrics-enabled",
+        "--metrics-port=30404");
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains("Port number '30404' has been specified multiple times.");
+  }
+
+  @Test
+  public void assertThatIpv6DiscoveryUdpAndMetricsTcpMaySharePort() {
+    parseCommand(
+        "--p2p-interface-ipv6=::",
+        "--p2p-discovery-port-ipv6=44444",
+        "--metrics-enabled",
+        "--metrics-port=44444");
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
   public void assertThatDuplicatePortSpecifiedFails() {
     parseCommand(
         "--p2p-port=9",
@@ -2587,6 +2614,28 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
+  public void skipPreCheckpointHeadersRequiresCheckpoint() throws IOException {
+    final Path genesisFile = createFakeGenesisFile(GENESIS_VALID_JSON);
+    parseCommand(
+        "--genesis-file",
+        genesisFile.toString(),
+        "--snapsync-synchronizer-skip-pre-checkpoint-headers-enabled");
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains(
+            "--snapsync-synchronizer-skip-pre-checkpoint-headers-enabled requires a trusted checkpoint");
+  }
+
+  @Test
+  public void skipPreCheckpointHeadersSucceedsWhenCheckpointProvided() {
+    final String hash = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
+    parseCommand(
+        "--checkpoint=" + hash + ":12345678:1000000",
+        "--snapsync-synchronizer-skip-pre-checkpoint-headers-enabled");
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
   public void verifyVersionInTheConfigurationOverviewIsCorrect() {
     parseCommand();
     verify(mockLogger)
@@ -2717,6 +2766,46 @@ public class BesuCommandTest extends CommandTestAbstract {
     assertThat(commandErrorOutput.toString(UTF_8))
         .contains(
             "--Xsnapsync-synchronizer-flat option can only be used when --Xbonsai-full-flat-db-enabled is true");
+  }
+
+  @Test
+  public void bonsaiArchiveStateProofsShouldBeDisabledByDefault() {
+    final TestBesuCommand besuCommand = parseCommand();
+    assertThat(
+            besuCommand
+                .dataStorageOptions
+                .toDomainObject()
+                .getPathBasedExtraStorageConfiguration()
+                .getUnstable()
+                .getBonsaiArchiveStateProofsEnabled())
+        .isFalse();
+  }
+
+  @Test
+  public void bonsaiArchiveStateProofsEnabledOptionShouldWorkWithoutValue() {
+    final TestBesuCommand besuCommand = parseCommand("--Xbonsai-archive-state-proofs-enabled");
+    assertThat(
+            besuCommand
+                .dataStorageOptions
+                .toDomainObject()
+                .getPathBasedExtraStorageConfiguration()
+                .getUnstable()
+                .getBonsaiArchiveStateProofsEnabled())
+        .isTrue();
+  }
+
+  @Test
+  public void bonsaiArchiveStateProofsEnabledOptionShouldWorkWithExplicitValue() {
+    final TestBesuCommand besuCommand =
+        parseCommand("--Xbonsai-archive-state-proofs-enabled", "true");
+    assertThat(
+            besuCommand
+                .dataStorageOptions
+                .toDomainObject()
+                .getPathBasedExtraStorageConfiguration()
+                .getUnstable()
+                .getBonsaiArchiveStateProofsEnabled())
+        .isTrue();
   }
 
   @Test

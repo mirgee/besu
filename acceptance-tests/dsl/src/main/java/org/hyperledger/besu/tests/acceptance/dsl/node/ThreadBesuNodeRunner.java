@@ -41,7 +41,10 @@ import org.hyperledger.besu.cryptoservices.pluginadapter.SecurityModuleServiceIm
 import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.graphql.GraphQLConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.InProcessRpcConfiguration;
+import org.hyperledger.besu.ethereum.api.pluginadapter.RpcEndpointServiceImpl;
+import org.hyperledger.besu.ethereum.blockcreation.pluginadapter.TransactionSelectionServiceImpl;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.chain.pluginadapter.BlockchainServiceImpl;
 import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.encoding.BlockBodyEncoder;
@@ -62,6 +65,7 @@ import org.hyperledger.besu.ethereum.permissioning.pluginadapter.PermissioningSe
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStorageProviderBuilder;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
+import org.hyperledger.besu.ethereum.transaction.pluginadapter.TransactionSimulationServiceImpl;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoaderModule;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCacheModule;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
@@ -73,6 +77,7 @@ import org.hyperledger.besu.metrics.ObservableMetricsSystem;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
 import org.hyperledger.besu.plugin.CoreConfiguration;
+import org.hyperledger.besu.plugin.rpc.RpcConfiguration;
 import org.hyperledger.besu.plugin.services.BesuConfiguration;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.PicoCLIOptions;
@@ -82,12 +87,8 @@ import org.hyperledger.besu.plugin.storage.StorageConfiguration;
 import org.hyperledger.besu.services.BesuConfigurationImpl;
 import org.hyperledger.besu.services.BesuPluginContextImpl;
 import org.hyperledger.besu.services.BesuPluginServiceRegistrar;
-import org.hyperledger.besu.services.BlockchainServiceImpl;
 import org.hyperledger.besu.services.PicoCLIOptionsImpl;
-import org.hyperledger.besu.services.RpcEndpointServiceImpl;
 import org.hyperledger.besu.services.StorageServiceImpl;
-import org.hyperledger.besu.services.TransactionSelectionServiceImpl;
-import org.hyperledger.besu.services.TransactionSimulationServiceImpl;
 import org.hyperledger.besu.services.TransactionValidatorServiceImpl;
 import org.hyperledger.besu.services.kvstore.InMemoryStoragePlugin;
 import org.hyperledger.besu.util.io.OutputStreamFactory;
@@ -612,6 +613,7 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
       besuPluginContext.addService(BesuConfiguration.class, commonPluginConfiguration);
       besuPluginContext.addService(CoreConfiguration.class, commonPluginConfiguration);
       besuPluginContext.addService(StorageConfiguration.class, commonPluginConfiguration);
+      besuPluginContext.addService(RpcConfiguration.class, commonPluginConfiguration);
       metricCategoryRegistry.setMetricsConfiguration(metricsConfiguration);
       BesuPluginServiceRegistrar.registerEarlyServices(
           besuPluginContext,
