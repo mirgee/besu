@@ -29,12 +29,12 @@ The [Besu documentation](https://docs.besu-eth.org/) answers many common questio
 * [Troubleshoot performance](https://docs.besu-eth.org/public-networks/how-to/troubleshoot/performance)
 * [Configure ports](https://docs.besu-eth.org/public-networks/how-to/connect/configure-ports)
 * [Understand metrics](https://docs.besu-eth.org/public-networks/how-to/monitor/understand-metrics)
-* [Configure the JVM](https://docs.besu-eth.org/public-networks/how-to/configure-jvm)
+* [Configure the JVM](https://docs.besu-eth.org/public-networks/how-to/configure-java/pass-jvm-options)
 
 ### Chat
 
 * Join the [Besu Discord](https://discord.com/invite/hyperledger): `#besu` to interact with the dev team and get support, and `#besu-contributors` if you are interested in contributing to the client.
-* Besu is an execution client and must be paired with a consensus client. If you are also running the [Teku](https://github.com/Consensys/teku) consensus client, the [Consensys Discord](https://discord.com/invite/consensys) is useful too (Mainnet Clients -> `#teku`).
+* Besu is an execution client and must be paired with a consensus client. If you are also running the [Teku](https://github.com/Consensys/teku) consensus client, the [Teku Discord](https://discord.com/invite/teku) is useful too.
 
 ### GitHub
 
